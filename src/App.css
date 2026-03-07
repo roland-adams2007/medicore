@@ -1,0 +1,21 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&display=swap");
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+.mc-root {
+  font-family: "DM Sans", sans-serif;
+}
+.mc-serif {
+  font-family: "DM Serif Display", serif;
+}
+body {
+  font-family: "DM Sans", sans-serif;
+  overflow-x: hidden;
+  background: #f7f4ef;
+}
+html {
+  scroll-behavior: smooth;
+}

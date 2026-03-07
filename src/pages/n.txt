@@ -1,0 +1,1352 @@
+RegClinic.jsx:
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+    Activity, Building2, MapPin, Phone, Mail, GitBranch,
+    ChevronRight, ChevronLeft, Check, Loader2, Globe,
+} from "lucide-react";
+import { useAuth } from "../context/Auth/UseAuth";
+import { useClinicStore, useStateStore } from "../store/store";
+import axiosInstance from "../api/axiosInstance";
+
+
+const STEPS = [
+    { id: 1, label: "Clinic Info" },
+    { id: 2, label: "Location" },
+    { id: 3, label: "First Branch" },
+];
+
+const FIELD = ({ label, name, value, onChange, placeholder, type = "text", icon: Icon, error, required }) => (
+    <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium" style={{ color: "rgba(13,17,23,0.7)" }}>
+            {label}{required && <span className="ml-0.5" style={{ color: "#E8927C" }}>*</span>}
+        </label>
+        <div className="relative">
+            {Icon && (
+                <Icon
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: "#8A9BB0" }}
+                />
+            )}
+            <input
+                type={type}
+                name={name}
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+                className="w-full pr-3.5 py-2.5 text-[14px] bg-white rounded-xl outline-none transition-colors"
+                style={{
+                    paddingLeft: Icon ? "2.25rem" : "0.875rem",
+                    border: `1px solid ${error ? "#E8927C" : "rgba(13,17,23,0.12)"}`,
+                    fontFamily: '"DM Sans", sans-serif',
+                    color: "#0D1117",
+                }}
+                onFocus={e => {
+                    if (!error) e.target.style.borderColor = "#4A7C59";
+                }}
+                onBlur={e => {
+                    if (!error) e.target.style.borderColor = "rgba(13,17,23,0.12)";
+                }}
+            />
+        </div>
+        {error && <p className="text-[12px]" style={{ color: "#E8927C" }}>{error}</p>}
+    </div>
+);
+
+const SELECT_FIELD = ({ label, name, value, onChange, options, icon: Icon, error, required, placeholder }) => (
+    <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium" style={{ color: "rgba(13,17,23,0.7)" }}>
+            {label}{required && <span className="ml-0.5" style={{ color: "#E8927C" }}>*</span>}
+        </label>
+        <div className="relative">
+            {Icon && (
+                <Icon
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: "#8A9BB0" }}
+                />
+            )}
+            <select
+                name={name}
+                value={value}
+                onChange={onChange}
+                className="w-full appearance-none pr-8 py-2.5 text-[14px] bg-white rounded-xl outline-none transition-colors cursor-pointer"
+                style={{
+                    paddingLeft: Icon ? "2.25rem" : "0.875rem",
+                    border: `1px solid ${error ? "#E8927C" : "rgba(13,17,23,0.12)"}`,
+                    fontFamily: '"DM Sans", sans-serif',
+                    color: value ? "#0D1117" : "#8A9BB0",
+                }}
+                onFocus={e => {
+                    if (!error) e.target.style.borderColor = "#4A7C59";
+                }}
+                onBlur={e => {
+                    if (!error) e.target.style.borderColor = "rgba(13,17,23,0.12)";
+                }}
+            >
+                <option value="" disabled>{placeholder ?? "Select…"}</option>
+                {options.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+            </select>
+            <ChevronRight
+                size={14}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none"
+                style={{ color: "#8A9BB0" }}
+            />
+        </div>
+        {error && <p className="text-[12px]" style={{ color: "#E8927C" }}>{error}</p>}
+    </div>
+);
+
+export default function RegClinic() {
+    const navigate = useNavigate();
+    const { user } = useAuth();
+    const { addClinic, setSelectedClinic } = useClinicStore();
+    const { fetchStates, states, loading, error } = useStateStore();
+
+    const [step, setStep] = useState(1);
+    const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState({});
+    const [submitError, setSubmitError] = useState("");
+
+    const [form, setForm] = useState({
+        name: "",
+        email: "",
+        phone: "",
+        address: "",
+        city: "",
+        state_id: "",
+        branch_name: "",
+        branch_address: "",
+        branch_phone: "",
+        branch_city: "",
+        branch_state_id: "",
+    });
+
+    useEffect(() => {
+        fetchStates();
+    }, []);
+
+    const handle = (e) => {
+        const { name, value } = e.target;
+        setForm((p) => ({ ...p, [name]: value }));
+        if (errors[name]) setErrors((p) => ({ ...p, [name]: "" }));
+    };
+
+    const validate = (s) => {
+        const e = {};
+        if (s === 1) {
+            if (!form.name.trim()) e.name = "Clinic name is required";
+            if (form.email && !/\S+@\S+\.\S+/.test(form.email)) e.email = "Invalid email";
+        }
+        if (s === 3) {
+            if (!form.branch_name.trim()) e.branch_name = "Branch name is required";
+        }
+        return e;
+    };
+
+    const next = () => {
+        const e = validate(step);
+        if (Object.keys(e).length) { setErrors(e); return; }
+        setStep((p) => p + 1);
+    };
+
+    const back = () => setStep((p) => p - 1);
+
+    const submit = async () => {
+        const e = validate(step);
+        if (Object.keys(e).length) { setErrors(e); return; }
+        setLoading(true);
+        setSubmitError("");
+        try {
+            const payload = {
+                name: form.name,
+                email: form.email || undefined,
+                phone: form.phone || undefined,
+                address: form.address || undefined,
+                city: form.city || undefined,
+                state_id: form.state_id || undefined,
+                branch: {
+                    name: form.branch_name,
+                    address: form.branch_address || undefined,
+                    phone: form.branch_phone || undefined,
+                    city: form.branch_city || undefined,
+                    state_id: form.branch_state_id || undefined,
+                },
+            };
+            const res = await axiosInstance.post("/clinics", payload);
+            const clinic = res.data?.data;
+            if (clinic) {
+                addClinic(clinic);
+                setSelectedClinic({
+                    id: clinic.id,
+                    name: clinic.name,
+                    branch: clinic.branches?.[0]?.name ?? form.branch_name,
+                    branchId: clinic.branches?.[0]?.id,
+                });
+            }
+            navigate("/dashboard", { replace: true });
+        } catch (err) {
+            setSubmitError(err.response?.data?.message ?? "Something went wrong. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const firstName = user?.fname ?? user?.name?.split(" ")[0] ?? "there";
+
+    const textareaStyle = {
+        width: "100%",
+        padding: "10px 14px",
+        fontSize: 14,
+        background: "#fff",
+        border: "1px solid rgba(13,17,23,0.12)",
+        borderRadius: 12,
+        outline: "none",
+        fontFamily: '"DM Sans", sans-serif',
+        resize: "none",
+        transition: "border-color 0.15s",
+        color: "#0D1117",
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col" style={{ background: "#F7F4EF" }}>
+            <style>{`
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        .fade-up { animation: fadeUp 0.4s ease forwards; }
+      `}</style>
+
+            <div
+                className="flex items-center gap-2.5 px-6 py-5"
+                style={{ borderBottom: "1px solid rgba(13,17,23,0.08)" }}
+            >
+                <div
+                    className="w-8 h-8 rounded-[9px] flex items-center justify-center"
+                    style={{ background: "#4A7C59" }}
+                >
+                    <Activity size={16} color="#fff" />
+                </div>
+                <span
+                    className="text-ink text-[17px]"
+                    style={{ fontFamily: '"DM Serif Display", serif' }}
+                >
+                    MediCore
+                </span>
+            </div>
+
+            <div className="flex-1 flex items-start justify-center px-4 py-10">
+                <div className="w-full max-w-lg">
+                    <div className="mb-8 fade-up">
+                        <h1
+                            className="text-ink text-[28px] leading-tight"
+                            style={{ fontFamily: '"DM Serif Display", serif' }}
+                        >
+                            Set up your clinic
+                        </h1>
+                        <p className="text-[14px] mt-1.5" style={{ color: "#8A9BB0" }}>
+                            Welcome, {firstName}. Let's get your clinic on MediCore.
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-0 mb-8">
+                        {STEPS.map((s, i) => (
+                            <div key={s.id} className="flex items-center flex-1 last:flex-none">
+                                <div className="flex flex-col items-center gap-1">
+                                    <div
+                                        className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-semibold transition-all duration-200"
+                                        style={{
+                                            background: step > s.id ? "#4A7C59" : step === s.id ? "#0D1117" : "rgba(13,17,23,0.10)",
+                                            color: step > s.id || step === s.id ? "#fff" : "#8A9BB0",
+                                        }}
+                                    >
+                                        {step > s.id ? <Check size={14} /> : s.id}
+                                    </div>
+                                    <span
+                                        className="text-[11px] font-medium whitespace-nowrap"
+                                        style={{ color: step === s.id ? "#0D1117" : "#8A9BB0" }}
+                                    >
+                                        {s.label}
+                                    </span>
+                                </div>
+                                {i < STEPS.length - 1 && (
+                                    <div
+                                        className="flex-1 h-px mx-3 mb-4 transition-colors"
+                                        style={{ background: step > s.id ? "#4A7C59" : "rgba(13,17,23,0.12)" }}
+                                    />
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div
+                        className="bg-white rounded-2xl p-6 shadow-sm"
+                        style={{ border: "1px solid rgba(13,17,23,0.10)" }}
+                    >
+                        {step === 1 && (
+                            <div className="flex flex-col gap-4 fade-up">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center"
+                                        style={{ background: "#E8F2EB" }}
+                                    >
+                                        <Building2 size={14} style={{ color: "#4A7C59" }} />
+                                    </div>
+                                    <h2
+                                        className="text-ink text-[18px]"
+                                        style={{ fontFamily: '"DM Serif Display", serif' }}
+                                    >
+                                        Clinic Information
+                                    </h2>
+                                </div>
+                                <FIELD
+                                    label="Clinic Name" name="name" value={form.name} onChange={handle}
+                                    placeholder="e.g. Grace Health Clinic" icon={Building2} error={errors.name} required
+                                />
+                                <FIELD
+                                    label="Email Address" name="email" value={form.email} onChange={handle}
+                                    placeholder="clinic@example.com" type="email" icon={Mail} error={errors.email}
+                                />
+                                <FIELD
+                                    label="Phone Number" name="phone" value={form.phone} onChange={handle}
+                                    placeholder="+234 800 000 0000" icon={Phone} error={errors.phone}
+                                />
+                            </div>
+                        )}
+
+                        {step === 2 && (
+                            <div className="flex flex-col gap-4 fade-up">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center"
+                                        style={{ background: "#FBF6E9" }}
+                                    >
+                                        <MapPin size={14} style={{ color: "#C9A84C" }} />
+                                    </div>
+                                    <h2
+                                        className="text-ink text-[18px]"
+                                        style={{ fontFamily: '"DM Serif Display", serif' }}
+                                    >
+                                        Clinic Location
+                                    </h2>
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[13px] font-medium" style={{ color: "rgba(13,17,23,0.7)" }}>
+                                        Address
+                                    </label>
+                                    <textarea
+                                        name="address"
+                                        value={form.address}
+                                        onChange={handle}
+                                        placeholder="Street address"
+                                        rows={2}
+                                        style={textareaStyle}
+                                        onFocus={e => (e.target.style.borderColor = "#4A7C59")}
+                                        onBlur={e => (e.target.style.borderColor = "rgba(13,17,23,0.12)")}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FIELD
+                                        label="City" name="city" value={form.city} onChange={handle}
+                                        placeholder="Lagos" icon={Globe} error={errors.city}
+                                    />
+                                    <SELECT_FIELD
+                                        label="State" name="state_id" value={form.state_id} onChange={handle}
+                                        options={states} icon={MapPin} error={errors.state_id} placeholder="Select state"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 3 && (
+                            <div className="flex flex-col gap-4 fade-up">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div
+                                        className="w-7 h-7 rounded-lg flex items-center justify-center"
+                                        style={{ background: "#FAF0ED" }}
+                                    >
+                                        <GitBranch size={14} style={{ color: "#E8927C" }} />
+                                    </div>
+                                    <div>
+                                        <h2
+                                            className="text-ink text-[18px]"
+                                            style={{ fontFamily: '"DM Serif Display", serif' }}
+                                        >
+                                            First Branch
+                                        </h2>
+                                        <p className="text-[12px]" style={{ color: "#8A9BB0" }}>
+                                            You can add more branches later from settings.
+                                        </p>
+                                    </div>
+                                </div>
+                                <FIELD
+                                    label="Branch Name" name="branch_name" value={form.branch_name} onChange={handle}
+                                    placeholder="e.g. Main Branch, Lekki Branch" icon={GitBranch}
+                                    error={errors.branch_name} required
+                                />
+                                <FIELD
+                                    label="Phone" name="branch_phone" value={form.branch_phone} onChange={handle}
+                                    placeholder="+234 800 000 0000" icon={Phone} error={errors.branch_phone}
+                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-[13px] font-medium" style={{ color: "rgba(13,17,23,0.7)" }}>
+                                        Address
+                                    </label>
+                                    <textarea
+                                        name="branch_address"
+                                        value={form.branch_address}
+                                        onChange={handle}
+                                        placeholder="Branch street address (leave blank to use clinic address)"
+                                        rows={2}
+                                        style={textareaStyle}
+                                        onFocus={e => (e.target.style.borderColor = "#4A7C59")}
+                                        onBlur={e => (e.target.style.borderColor = "rgba(13,17,23,0.12)")}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FIELD
+                                        label="City" name="branch_city" value={form.branch_city} onChange={handle}
+                                        placeholder="Lagos" icon={Globe} error={errors.branch_city}
+                                    />
+                                    <SELECT_FIELD
+                                        label="State" name="branch_state_id" value={form.branch_state_id} onChange={handle}
+                                        options={states} icon={MapPin} error={errors.branch_state_id} placeholder="Select state"
+                                    />
+                                </div>
+                                {submitError && (
+                                    <div
+                                        className="text-[13px] rounded-xl px-4 py-3"
+                                        style={{
+                                            background: "#FAF0ED",
+                                            border: "1px solid rgba(232,146,124,0.3)",
+                                            color: "#E8927C",
+                                        }}
+                                    >
+                                        {submitError}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-5">
+                        {step > 1 ? (
+                            <button
+                                onClick={back}
+                                className="flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium rounded-xl transition-colors bg-white border cursor-pointer"
+                                style={{ color: "#8A9BB0", borderColor: "rgba(13,17,23,0.12)", fontFamily: '"DM Sans", sans-serif' }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.color = "#0D1117";
+                                    e.currentTarget.style.borderColor = "rgba(13,17,23,0.25)";
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.color = "#8A9BB0";
+                                    e.currentTarget.style.borderColor = "rgba(13,17,23,0.12)";
+                                }}
+                            >
+                                <ChevronLeft size={15} /> Back
+                            </button>
+                        ) : (
+                            <div />
+                        )}
+
+                        {step < STEPS.length ? (
+                            <button
+                                onClick={next}
+                                className="flex items-center gap-1.5 px-5 py-2.5 text-[13px] font-medium text-white rounded-xl transition-colors border-none cursor-pointer"
+                                style={{ background: "#4A7C59", fontFamily: '"DM Sans", sans-serif' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#2F5C3A")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "#4A7C59")}
+                            >
+                                Continue <ChevronRight size={15} />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={submit}
+                                disabled={loading}
+                                className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-white rounded-xl transition-colors border-none"
+                                style={{
+                                    background: "#4A7C59",
+                                    opacity: loading ? 0.6 : 1,
+                                    cursor: loading ? "not-allowed" : "pointer",
+                                    fontFamily: '"DM Sans", sans-serif',
+                                }}
+                                onMouseEnter={e => { if (!loading) e.currentTarget.style.background = "#2F5C3A"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "#4A7C59"; }}
+                            >
+                                {loading ? (
+                                    <><Loader2 size={15} className="animate-spin" /> Creating…</>
+                                ) : (
+                                    <><Check size={15} /> Create Clinic</>
+                                )}
+                            </button>
+                        )}
+                    </div>
+
+                    <p className="text-center text-[12px] mt-5" style={{ color: "#8A9BB0" }}>
+                        Step {step} of {STEPS.length}
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+useClinicStore:
+import { create } from "zustand";
+import axiosInstance from "../../api/axiosInstance";
+
+export const useClinicStore = create((set, get) => ({
+  selectedClinic: null,
+  clinics: [],
+  loading: false,
+  error: null,
+  initialized: false,
+
+  initialize: () => {
+    try {
+      const stored = localStorage.getItem("selectedClinic");
+      if (stored) {
+        set({ selectedClinic: JSON.parse(stored), initialized: true });
+      } else {
+        set({ initialized: true });
+      }
+    } catch {
+      localStorage.removeItem("selectedClinic");
+      set({ selectedClinic: null, initialized: true });
+    }
+  },
+
+  fetchClinics: async (forceRefresh = false) => {
+    const { clinics, initialized } = get();
+    if (!forceRefresh && clinics.length > 0 && initialized) return clinics;
+
+    set({ loading: true, error: null });
+    try {
+      const response = await axiosInstance.get("/users/company-check");
+
+      if (!response.data?.data?.clinics) throw new Error("Invalid response structure");
+
+      const clinics = response.data.data.clinics;
+      set({ clinics, loading: false, error: null });
+
+      const { selectedClinic } = get();
+      if (!selectedClinic && clinics.length > 0) {
+        const first = clinics[0];
+        get().setSelectedClinic({
+          id: first.id,
+          name: first.name,
+          branch: first.branches?.[0]?.name ?? "Main Branch",
+          branchId: first.branches?.[0]?.id ?? first.id + "-main",
+        });
+      }
+
+      return clinics;
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message || error.message || "Failed to load clinics";
+      set({ error: errorMessage, loading: false });
+      throw error;
+    }
+  },
+
+  setSelectedClinic: (clinic) => {
+    if (clinic) {
+      try {
+        localStorage.setItem("selectedClinic", JSON.stringify(clinic));
+      } catch {}
+    } else {
+      localStorage.removeItem("selectedClinic");
+    }
+    set({ selectedClinic: clinic });
+  },
+
+  clearSelectedClinic: () => {
+    localStorage.removeItem("selectedClinic");
+    set({ selectedClinic: null });
+  },
+
+  addClinic: (clinic) => {
+    if (!clinic) return;
+    set((state) => ({ clinics: [clinic, ...state.clinics] }));
+  },
+
+  removeClinic: (clinicId) => {
+    if (!clinicId) return;
+    set((state) => {
+      const newClinics = state.clinics.filter((c) => c.id !== clinicId);
+      if (state.selectedClinic?.id === clinicId) {
+        const next = newClinics[0] ?? null;
+        if (next) {
+          localStorage.setItem("selectedClinic", JSON.stringify(next));
+        } else {
+          localStorage.removeItem("selectedClinic");
+        }
+        return { clinics: newClinics, selectedClinic: next };
+      }
+      return { clinics: newClinics };
+    });
+  },
+
+  getClinicById: (id) => {
+    if (!id) return null;
+    return get().clinics.find((c) => c.id === id) ?? null;
+  },
+
+  clearError: () => set({ error: null }),
+
+  reset: () => {
+    localStorage.removeItem("selectedClinic");
+    set({ selectedClinic: null, clinics: [], loading: false, error: null, initialized: false });
+  },
+}));
+
+useStateStore:
+import { create } from "zustand";
+import axiosInstance from "../../api/axiosInstance";
+
+export const useStateStore = create((set, get) => ({
+  states: [],
+  loading: false,
+  error: null,
+
+  fetchStates: async () => {
+    const { states } = get();
+    if (states.length > 0) return states;
+
+    set({ loading: true, error: null });
+    try {
+      const response = await axiosInstance.get("/states");
+
+      if (!response.data?.data?.states)
+        throw new Error("Invalid response structure");
+
+      const states = response.data.data.states;
+      set({ states, loading: false, error: null });
+
+      return states;
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to load states";
+      set({ error: errorMessage, loading: false });
+      throw error;
+    }
+  },
+}));
+
+clinic.controller.js:
+const asyncHandler = require("express-async-handler");
+const { responseHandler } = require("../middleware/responseHandler.js");
+const Clinic = require("../models/clinic.model.js");
+const generateUUID = require("../utils/generateUUID.js");
+const Branch = require("../models/branch.model.js");
+
+const getClinics = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+
+  const clinics = await Clinic.findForUser(userId);
+
+  const clinicsWithBranches = await Promise.all(
+    clinics.map(async (clinic) => {
+      const branches = await Branch.findForClinic(clinic.id);
+      return {
+        ...clinic,
+        branches,
+      };
+    }),
+  );
+
+  res.status(200);
+  responseHandler(res, { clinics: clinicsWithBranches });
+});
+
+const getClinic = asyncHandler(async function (req, res) {
+  const clinicId = req.params.clinicId;
+  const userId = req.user?.id;
+
+  const clinic = await Clinic.findById(clinicId, userId);
+
+  if (!clinic) {
+    res.status(404);
+    throw new Error("Clinic not found");
+  }
+
+  const branches = await Branch.findForClinic(clinicId);
+
+  clinic.branches = branches;
+
+  res.status(200);
+  responseHandler(res, { clinic });
+});
+
+const createClinic = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const { name, email, phone, address, city, state_id } = req.body;
+  const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+  if (!name) {
+    res.status(400);
+    throw new Error("Clinic name is required");
+  }
+
+  const clinicData = {
+    name,
+    email: email || null,
+    phone: phone || null,
+    address: address || null,
+    city: city || null,
+    state_id: state_id || null,
+    owner_id: userId,
+    uuid: generateUUID(),
+    subscription_id,
+    is_active: 1,
+    created_at: nowUtc,
+  };
+
+  const clinicId = await Clinic.create(clinicData);
+
+  if (!clinicId) {
+    res.status(500);
+    throw new Error("Failed to create Clinic");
+  }
+
+  const clinicSubAdded = await Clinic.addClinicSub({
+    clinic_id: clinicId,
+    subscription_id: 1, // Default subscription ID for new clinics
+    start_date: nowUtc,
+    end_date: null,
+    price_paid: 0,
+    status: "active",
+    created_at: nowUtc,
+  });
+
+  if (!clinicSubAdded) {
+    await Clinic.deleteById(clinicId);
+    res.status(500);
+    throw new Error("Failed to assign subscription to Clinic");
+  }
+
+  res.status(200);
+  responseHandler(res, { message: "Clinic created successfully" });
+});
+
+module.exports = {
+  getClinics,
+  getClinic,
+  createClinic,
+};
+
+
+clinic.model.js:
+const { db_connection } = require("../config/config.inc");
+
+const Clinic = {
+  findForUser: async (userId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT 
+            c.id,
+            c.uuid,
+            c.name,
+            c.email,
+            c.phone,
+            c.address,
+            c.city,
+            c.state_id,
+            s.name AS state_name,
+            c.created_at
+         FROM clinics c
+         LEFT JOIN states s ON c.state_id = s.id
+         WHERE c.owner_id = ?
+         AND c.is_active = 1
+         ORDER BY c.created_at DESC`,
+        [userId],
+      );
+
+      return rows || [];
+    } catch (error) {
+      console.error(error);
+      return [];
+    }
+  },
+
+  findById: async (id, userId = null) => {
+    try {
+      let query = `
+        SELECT 
+          c.id,
+          c.uuid,
+          c.name,
+          c.slug,
+          c.email,
+          c.phone,
+          c.address,
+          c.city,
+          c.state_id,
+          s.name AS state_name,
+          c.subscription_id,
+          c.owner_id,
+          c.is_active,
+          c.created_at
+        FROM clinics c
+        LEFT JOIN states s ON c.state_id = s.id
+        WHERE c.id = ?
+      `;
+
+      const params = [id];
+
+      if (userId) {
+        query += ` AND c.owner_id = ?`;
+        params.push(userId);
+      }
+
+      query += ` AND c.is_active = 1 LIMIT 1`;
+
+      const [rows] = await db_connection.execute(query, params);
+
+      return rows[0] || null;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  },
+
+  findByUUID: async (uuid, userId = null) => {
+    try {
+      let query = `
+        SELECT 
+          c.id,
+          c.uuid,
+          c.name,
+          c.slug,
+          c.email,
+          c.phone,
+          c.address,
+          c.city,
+          c.state_id,
+          s.name AS state_name,
+          c.subscription_id,
+          c.owner_id,
+          c.is_active,
+          c.created_at
+        FROM clinics c
+        LEFT JOIN states s ON c.state_id = s.id
+        WHERE c.uuid = ?
+      `;
+
+      const params = [uuid];
+
+      if (userId) {
+        query += ` AND c.owner_id = ?`;
+        params.push(userId);
+      }
+
+      query += ` AND c.is_active = 1 LIMIT 1`;
+
+      const [rows] = await db_connection.execute(query, params);
+
+      return rows[0] || null;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  },
+
+  create: async (clinicData) => {
+    try {
+      const {
+        name,
+        uuid,
+        email,
+        phone,
+        address,
+        city,
+        state_id,
+        owner_id,
+        subscription_id,
+        is_active,
+        created_at,
+      } = clinicData;
+
+      const [result] = await db_connection.execute(
+        `INSERT INTO clinics (name, uuid, email, phone, address, city, state_id, owner_id, subscription_id, is_active, created_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          name,
+          uuid,
+          email,
+          phone,
+          address,
+          city,
+          state_id,
+          owner_id,
+          subscription_id,
+          is_active,
+          created_at,
+        ],
+      );
+
+      return result.insertId;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  },
+
+  addClinicSub: async (data) => {
+    try {
+      const {
+        clinic_id,
+        subscription_id,
+        start_date,
+        end_date,
+        price_paid,
+        status,
+        created_at,
+      } = data;
+      const [result] = await db_connection.execute(
+        `INSERT INTO clinic_subscriptions (clinic_id, subscription_id, start_date, end_date, price_paid, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          clinic_id,
+          subscription_id,
+          start_date,
+          end_date,
+          price_paid,
+          status,
+          created_at,
+        ],
+      );
+      return result.affectedRows > 0;
+    } catch {
+      return false;
+    }
+  },
+};
+
+module.exports = Clinic;
+
+
+branch.model.js:
+const { db_connection } = require("../config/config.inc");
+
+const Branch = {
+  findForClinic: async (clinicId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT 
+            b.id,
+            b.uuid,
+            b.name,
+            b.phone,
+            b.address,
+            b.city,
+            b.state_id,
+            s.name AS state_name,
+            c.created_at
+         FROM branches b
+         LEFT JOIN states s ON c.state_id = s.id
+         WHERE b.clinic_id = ?
+         ORDER BY b.created_at DESC`,
+        [clinicId],
+      );
+
+      return rows || [];
+    } catch (error) {
+      console.error(error);
+      return [];
+    }
+  },
+};
+
+module.exports = Branch;
+
+
+db:
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  fname VARCHAR(100) NULL,
+  lname VARCHAR(100) NULL,
+  email VARCHAR(190) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  email_verified_at DATETIME NULL,
+  last_login_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_users_email (email),
+  INDEX idx_users_is_active (is_active),
+  INDEX idx_users_verified (email_verified_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- User sessions table
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  session_id CHAR(36) NOT NULL UNIQUE,
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(512) NULL,
+  device_label VARCHAR(120) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_sessions_user (user_id),
+  INDEX idx_sessions_revoked (revoked_at),
+  INDEX idx_sessions_last_seen (last_seen_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Refresh tokens table
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  session_id CHAR(36) NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_at DATETIME NULL,
+  replaced_by_token_hash CHAR(64) NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+  INDEX idx_refresh_user (user_id),
+  INDEX idx_refresh_session (session_id),
+  INDEX idx_refresh_expires (expires_at),
+  INDEX idx_refresh_revoked (revoked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Email tokens table
+CREATE TABLE IF NOT EXISTS email_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(190) NOT NULL,
+  user_id BIGINT UNSIGNED DEFAULT NULL,
+  type VARCHAR(100) NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  is_used TINYINT(1) NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  used_at DATETIME NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_email_tokens_user (user_id),
+  INDEX idx_email_tokens_type (type),
+  INDEX idx_email_tokens_used (is_used),
+  INDEX idx_email_tokens_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Login attempts table
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(190) NULL,
+  ip_address VARCHAR(45) NULL,
+  success TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_attempts_email (email),
+  INDEX idx_attempts_ip (ip_address),
+  INDEX idx_attempts_time (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- States table
+CREATE TABLE IF NOT EXISTS states (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  code VARCHAR(10) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Roles table
+CREATE TABLE IF NOT EXISTS roles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (parent_id) REFERENCES roles(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_role_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Permissions table
+CREATE TABLE IF NOT EXISTS permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- User roles table
+CREATE TABLE IF NOT EXISTS user_roles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_user_role (user_id, role_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Role permissions table
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  role_id BIGINT UNSIGNED NOT NULL,
+  permission_id BIGINT UNSIGNED NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_role_permission (role_id, permission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  price_monthly DECIMAL(10,2) NULL,
+  price_yearly DECIMAL(10,2) NULL,
+  max_users INT NULL,
+  max_branches INT NULL,
+  max_storage_mb INT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (parent_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
+  INDEX idx_subscriptions_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS subscription_permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  subscription_id BIGINT UNSIGNED NOT NULL,
+  permission_id BIGINT UNSIGNED NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_subscription_permission (subscription_id, permission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS clinics (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  name VARCHAR(200) NOT NULL,
+  email VARCHAR(190) NULL,
+  phone VARCHAR(50) NULL,
+  address TEXT NULL,
+  city VARCHAR(190) NULL,
+  state_id BIGINT UNSIGNED NULL,
+  owner_id BIGINT UNSIGNED NOT NULL,
+  subscription_id BIGINT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
+  INDEX idx_clinics_subscription (subscription_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clinic_subscriptions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  subscription_id BIGINT UNSIGNED NOT NULL,
+  start_date DATETIME NOT NULL,
+  end_date DATETIME NULL,
+  price_paid DECIMAL(10,2) NULL,
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+  INDEX idx_clinic_subs_clinic (clinic_id),
+  INDEX idx_clinic_subs_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Branches table
+CREATE TABLE IF NOT EXISTS branches (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  address TEXT NULL,
+  phone VARCHAR(50) NULL,
+  city  VARCHAR(150) DEFAULT NULL,
+  state_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS branch_users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  branch_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_branch_user (branch_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+Sidebar.jsx:
+import { useNavigate, useLocation } from "react-router-dom";
+import { X, Activity, LogOut } from "lucide-react";
+import { useAuth } from "../context/Auth/UseAuth";
+import { useClinicStore } from "../store/store";
+import ClinicSwitcher from "../components/ui/ClinicSwitcher";
+import NavItem from "../components/ui/NavItem";
+import Avatar from "../components/ui/Avatar";
+import { getNavForRoles } from "../config/navConfig";
+
+export default function Sidebar({ open, onClose }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+  const { selectedClinic, setSelectedClinic, clinics } = useClinicStore();
+
+  const roles = user?.roles ?? (user?.role ? [user.role] : ["receptionist"]);
+  const navSections = getNavForRoles(roles);
+
+  const initials = user
+    ? `${user.fname?.[0] ?? ""}${user.lname?.[0] ?? ""}`.toUpperCase() || "??"
+    : "??";
+
+  const ROUTE_MAP = {
+    dashboard: "/dashboard",
+    appointments: "/dashboard/appointments",
+    patients: "/dashboard/patients",
+    consultations: "/dashboard/consultations",
+    staff: "/dashboard/staff",
+    billing: "/dashboard/billing",
+    reports: "/dashboard/reports",
+    pharmacy: "/dashboard/pharmacy",
+    lab: "/dashboard/lab",
+    inventory: "/dashboard/inventory",
+    labRequests: "/dashboard/lab-requests",
+    audit: "/dashboard/audit",
+    settings: "/dashboard/settings",
+    ward: "/dashboard/ward",
+    vitals: "/dashboard/vitals",
+  };
+
+  const handleNav = (key) => {
+    navigate(ROUTE_MAP[key] ?? "/dashboard");
+    onClose();
+  };
+
+  const isActive = (key) => {
+    const route = ROUTE_MAP[key];
+    if (!route) return false;
+    if (key === "dashboard") return location.pathname === "/dashboard";
+    return location.pathname.startsWith(route);
+  };
+
+  const clinicList = clinics.map((c) => ({
+    id: c.id,
+    name: c.name,
+    branches: c.branches ?? [{ id: c.id + "-main", name: c.branch ?? "Main Branch" }],
+  }));
+
+  return (
+    <aside
+      className={`
+        fixed top-0 left-0 h-screen w-[260px] flex flex-col z-50
+        transition-transform duration-[280ms] ease-[cubic-bezier(0.4,0,0.2,1)]
+        lg:static lg:translate-x-0 lg:z-auto lg:shrink-0
+        ${open ? "translate-x-0 shadow-[4px_0_24px_rgba(0,0,0,0.3)]" : "-translate-x-full"}
+      `}
+      style={{ background: "#0D1117", overflowY: "auto" }}
+    >
+      <div
+        className="flex items-center justify-between px-5 py-5"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+            style={{ background: "#4A7C59" }}
+          >
+            <Activity size={18} color="#fff" />
+          </div>
+          <div>
+            <p
+              className="text-white text-[18px] leading-none"
+              style={{ fontFamily: '"DM Serif Display", serif' }}
+            >
+              MediCore
+            </p>
+            <p className="text-slate text-[11px] mt-0.5">Clinic OS</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="lg:hidden w-8 h-8 flex items-center justify-center text-slate rounded-lg transition-colors"
+          style={{ background: "rgba(255,255,255,0.06)" }}
+          onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+          onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <ClinicSwitcher
+        clinics={clinicList}
+        selectedClinic={selectedClinic}
+        onSelect={setSelectedClinic}
+      />
+
+      <nav
+        className="flex-1 overflow-y-auto px-3 py-3.5 flex flex-col gap-0.5"
+        style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.1) transparent" }}
+      >
+        {navSections.map((section) => (
+          <div key={section.label} className="mb-1">
+            <p
+              className="text-[10px] font-semibold uppercase px-3 pb-2 pt-1"
+              style={{ color: "rgba(138,155,176,0.6)", letterSpacing: "0.1em" }}
+            >
+              {section.label}
+            </p>
+            {section.items.map((item) => (
+              <NavItem
+                key={item.key}
+                icon={item.icon}
+                label={item.label}
+                badge={item.badge}
+                dot={item.dot}
+                active={isActive(item.key)}
+                onClick={() => handleNav(item.key)}
+              />
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      <div
+        className="px-4 py-3.5 flex items-center gap-2.5"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        <Avatar initials={initials} color="#4A7C59" size={32} />
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-[13px] font-medium truncate">{user?.fname ?? "User"}</p>
+          <p className="text-slate text-[11px] capitalize truncate">{roles[0] ?? "Staff"}</p>
+        </div>
+        <button
+          className="text-slate p-1 transition-colors"
+          style={{ background: "none", border: "none", cursor: "pointer" }}
+          onMouseEnter={e => (e.currentTarget.style.color = "#fff")}
+          onMouseLeave={e => (e.currentTarget.style.color = "#8A9BB0")}
+          onClick={() => { }}
+        >
+          <LogOut size={16} />
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+prompt:
+make the reg cliic sync u get with everything, if i have clinic already they can choose the one they wanna enter and if not the form and branches and also the branches should be from the db eveything should be dynmic, give me full code and if i have client without the brnches i have to create the branches u get
+
