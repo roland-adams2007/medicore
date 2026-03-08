@@ -5,7 +5,7 @@ import { useClinicStore } from "../store/store";
 import ClinicSwitcher from "../components/ui/ClinicSwitcher";
 import NavItem from "../components/ui/NavItem";
 import Avatar from "../components/ui/Avatar";
-import { getNavForRoles } from "../config/navConfig";
+import { getNavForRoles, ROUTE_MAP } from "../config/navConfig";
 
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
@@ -19,39 +19,27 @@ export default function Sidebar({ open, onClose }) {
       ? [selectedClinic.role]
       : [];
 
+  const normalize = (r) => r.toLowerCase().replace(/\s+/g, "_");
+  const normalizedRoles = roles.map(normalize);
+  const isSuperAdmin = normalizedRoles.includes("super_admin");
+
   const navSections = getNavForRoles(roles);
 
   const initials = user
     ? `${user.fname?.[0] ?? ""}${user.lname?.[0] ?? ""}`.toUpperCase() || "??"
     : "??";
 
-  const ROUTE_MAP = {
-    dashboard: "/dashboard",
-    appointments: "/dashboard/appointments",
-    patients: "/dashboard/patients",
-    consultations: "/dashboard/consultations",
-    staff: "/dashboard/staff",
-    billing: "/dashboard/billing",
-    reports: "/dashboard/reports",
-    pharmacy: "/dashboard/pharmacy",
-    lab: "/dashboard/lab",
-    inventory: "/dashboard/inventory",
-    labRequests: "/dashboard/lab-requests",
-    audit: "/dashboard/audit",
-    settings: "/dashboard/settings",
-    ward: "/dashboard/ward",
-    vitals: "/dashboard/vitals",
-  };
-
   const handleNav = (key) => {
-    navigate(ROUTE_MAP[key] ?? "/dashboard");
+    navigate(ROUTE_MAP[key] ?? (isSuperAdmin ? "/admin" : "/dashboard"));
     onClose();
   };
 
   const isActive = (key) => {
     const route = ROUTE_MAP[key];
     if (!route) return false;
+    // exact match for root dashboard/admin pages
     if (key === "dashboard") return location.pathname === "/dashboard";
+    if (key === "admin_dashboard") return location.pathname === "/admin";
     return location.pathname.startsWith(route);
   };
 
@@ -64,7 +52,6 @@ export default function Sidebar({ open, onClose }) {
   }));
 
   const handleSelectClinic = (selected) => {
-    // when switching clinic/branch, carry the role for that clinic from the store
     const fullClinic = clinics.find((c) => c.id === selected.id);
     setSelectedClinic({
       id: selected.id,
@@ -86,6 +73,7 @@ export default function Sidebar({ open, onClose }) {
       `}
       style={{ background: "#0D1117", overflowY: "auto" }}
     >
+      {/* ── Logo ── */}
       <div
         className="flex items-center justify-between px-5 py-5"
         style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
@@ -93,7 +81,7 @@ export default function Sidebar({ open, onClose }) {
         <div className="flex items-center gap-2.5">
           <div
             className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
-            style={{ background: "#4A7C59" }}
+            style={{ background: isSuperAdmin ? "#C9A84C" : "#4A7C59" }}
           >
             <Activity size={18} color="#fff" />
           </div>
@@ -101,7 +89,9 @@ export default function Sidebar({ open, onClose }) {
             <p className="text-white text-[18px] leading-none" style={{ fontFamily: '"DM Serif Display", serif' }}>
               MediCore
             </p>
-            <p style={{ color: "#8A9BB0", fontSize: 11, marginTop: 2 }}>Clinic OS</p>
+            <p style={{ color: isSuperAdmin ? "#C9A84C" : "#8A9BB0", fontSize: 11, marginTop: 2 }}>
+              {isSuperAdmin ? "Super Admin" : "Clinic OS"}
+            </p>
           </div>
         </div>
         <button
@@ -115,12 +105,16 @@ export default function Sidebar({ open, onClose }) {
         </button>
       </div>
 
-      <ClinicSwitcher
-        clinics={clinicList}
-        selectedClinic={selectedClinic}
-        onSelect={handleSelectClinic}
-      />
+      {/* ── Clinic switcher (hidden for super admin) ── */}
+      {!isSuperAdmin && (
+        <ClinicSwitcher
+          clinics={clinicList}
+          selectedClinic={selectedClinic}
+          onSelect={handleSelectClinic}
+        />
+      )}
 
+      {/* ── Nav ── */}
       <nav
         className="flex-1 overflow-y-auto px-3 py-3.5 flex flex-col gap-0.5"
         style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.1) transparent" }}
@@ -148,17 +142,18 @@ export default function Sidebar({ open, onClose }) {
         ))}
       </nav>
 
+      {/* ── User footer ── */}
       <div
         className="px-4 py-3.5 flex items-center gap-2.5"
         style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
       >
-        <Avatar initials={initials} color="#4A7C59" size={32} />
+        <Avatar initials={initials} color={isSuperAdmin ? "#C9A84C" : "#4A7C59"} size={32} />
         <div className="flex-1 min-w-0">
           <p className="text-white text-[13px] font-medium truncate">
             {user?.fname ? `${user.fname} ${user.lname ?? ""}`.trim() : "User"}
           </p>
           <p style={{ color: "#8A9BB0", fontSize: 11 }} className="capitalize truncate">
-            {selectedClinic?.role ?? "—"}
+            {isSuperAdmin ? "Super Admin" : (selectedClinic?.role ?? "—")}
           </p>
         </div>
         <button
