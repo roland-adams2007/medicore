@@ -10,6 +10,7 @@ import HomePage from "../pages/HomePage";
 import RegClinic from "../pages/RegClinic";
 import Dashboard from "../pages/Dashboard";
 import NotAllowed from "../components/errors/NotAllowed";
+import NotAllowedRoute from "./NotAllowedRoute";
 
 // ─── Lazy pages ────────────────────────────────────────────────────────────────
 const Login = lazy(() => import("../components/auth/Login"));
@@ -277,7 +278,7 @@ export default function AppRoutes() {
         </Route>{/* end ProtectedRoute */}
 
         {/* ── 404 ─────────────────────────────────────────────────────────── */}
-        <Route path="/not-allowed" element={<NotAllowed />} />
+        <Route path="/not-allowed" element={<NotAllowedRoute><NotAllowed /></NotAllowedRoute>} />
         <Route path="*" element={<NotFound />} />
 
       </Routes>
