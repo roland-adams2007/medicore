@@ -181,7 +181,7 @@ export default function RegClinic() {
     const stateOptions = states.map(s => ({ value: s.id, label: s.name }));
     const firstName = user?.fname ?? user?.name?.split(" ")[0] ?? "there";
 
-    useEffect(() => { fetchStates().catch(() => {}); }, []);
+    useEffect(() => { fetchStates().catch(() => { }); }, []);
 
     useEffect(() => { if (!initialized) initialize(); }, [initialized, initialize]);
 
@@ -239,18 +239,12 @@ export default function RegClinic() {
                     state_id: form.branch_state_id || undefined,
                 },
             });
-            const clinic = res.data?.data;
+
+            const clinic = res.data?.data?.clinic; // ✅ correctly nested
             if (clinic) {
-                addClinic(clinic);
-                setSelectedClinic({
-                    id: clinic.id,
-                    name: clinic.name,
-                    branch: clinic.branches?.[0]?.name ?? form.branch_name,
-                    branchId: clinic.branches?.[0]?.id ?? null,
-                    role: clinic.role ?? "owner",
-                    roles: clinic.roles ?? ["owner"],
-                });
+                addClinic(clinic); // handles auto-select internally now
             }
+
             navigate("/dashboard", { replace: true });
         } catch (err) {
             setSubmitError(err.response?.data?.message ?? "Something went wrong. Please try again.");

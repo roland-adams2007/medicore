@@ -30,7 +30,8 @@ export const useClinicStore = create((set, get) => ({
     try {
       const response = await axiosInstance.get("/clinics");
       const clinics = response.data?.data?.clinics;
-      if (!Array.isArray(clinics)) throw new Error("Invalid response structure");
+      if (!Array.isArray(clinics))
+        throw new Error("Invalid response structure");
 
       set({ clinics, loading: false, error: null });
 
@@ -48,11 +49,19 @@ export const useClinicStore = create((set, get) => ({
           roles: first.roles ?? [],
         });
       } else if (selectedClinic) {
-        // re-sync role/roles for the currently selected clinic in case they changed
         const match = clinics.find((c) => c.id === selectedClinic.id);
         if (match) {
+          // If selectedClinic has no branchId, pick the first branch from updated data
+          const currentBranch = match.branches?.find(
+            (b) => b.id === selectedClinic.branchId,
+          );
+          const fallbackBranch = match.branches?.[0];
+          const resolvedBranch = currentBranch ?? fallbackBranch;
+
           get().setSelectedClinic({
             ...selectedClinic,
+            branch: resolvedBranch?.name ?? selectedClinic.branch,
+            branchId: resolvedBranch?.id ?? selectedClinic.branchId ?? null,
             role: match.role ?? selectedClinic.role,
             roles: match.roles ?? selectedClinic.roles ?? [],
           });
@@ -62,7 +71,9 @@ export const useClinicStore = create((set, get) => ({
       return clinics;
     } catch (error) {
       const errorMessage =
-        error.response?.data?.message || error.message || "Failed to load clinics";
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to load clinics";
       set({ error: errorMessage, loading: false });
       throw error;
     }
@@ -84,10 +95,23 @@ export const useClinicStore = create((set, get) => ({
     set({ selectedClinic: null });
   },
 
-  addClinic: (clinic) => {
-    if (!clinic) return;
-    set((state) => ({ clinics: [clinic, ...state.clinics] }));
-  },
+  // clinicStore.js
+
+addClinic: (clinic) => {
+  if (!clinic) return;
+  set((state) => ({ clinics: [clinic, ...state.clinics] }));
+
+  // Auto-select the new clinic + its first branch immediately
+  const firstBranch = clinic.branches?.[0];
+  get().setSelectedClinic({
+    id: clinic.id,
+    name: clinic.name,
+    branch: firstBranch?.name ?? null,
+    branchId: firstBranch?.id ?? null,
+    role: clinic.role ?? null,
+    roles: clinic.roles ?? [],
+  });
+},
 
   removeClinic: (clinicId) => {
     if (!clinicId) return;
@@ -112,6 +136,12 @@ export const useClinicStore = create((set, get) => ({
 
   reset: () => {
     localStorage.removeItem("selectedClinic");
-    set({ selectedClinic: null, clinics: [], loading: false, error: null, initialized: false });
+    set({
+      selectedClinic: null,
+      clinics: [],
+      loading: false,
+      error: null,
+      initialized: false,
+    });
   },
 }));

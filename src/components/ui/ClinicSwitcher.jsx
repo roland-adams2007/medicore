@@ -32,16 +32,15 @@ export default function ClinicSwitcher({ clinics, selectedClinic, onSelect }) {
   };
 
   const handleBranchCreated = (branch) => {
-    // after modal creates + fetchClinics(true) runs inside modal,
-    // auto-switch to the new branch if it belongs to the currently selected clinic
-    if (branch && selectedClinic.id === branchModal?.clinicId) {
-      onSelect({
-        id: branchModal.clinicId,
-        name: branchModal.clinicName,
-        branch: branch.name,
-        branchId: branch.id,
-      });
-    }
+    if (!branch || !branchModal) return;
+
+    // Always switch to the newly created branch
+    onSelect({
+      id: branchModal.clinicId,
+      name: branchModal.clinicName,
+      branch: branch.name,
+      branchId: branch.id,
+    });
   };
 
   return (
