@@ -1,13 +1,16 @@
 import { useAuth } from "../context/Auth/UseAuth";
-import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect } from "react";
 import {
   Activity, ArrowRight, PlayCircle, CheckCircle, Receipt, Star,
   Sparkles, CalendarDays, FileHeart, Pill, FlaskConical, Users,
   ShieldCheck, BarChart2, MessageCircle, CalendarCheck, Banknote,
   Zap, UserPlus, Building2, Rocket, Tag, Twitter, Linkedin,
-  Instagram, Facebook, Menu, X, Check, ChevronRight
+  Instagram, Facebook, Menu, X, Check, Shield, Lock,
+  LayoutDashboard, Loader2, AlertCircle
 } from "lucide-react";
+import { useSubStore } from "../store/store";
+import axiosInstance from "../api/axiosInstance";
 
 const COLORS = {
   sage: "#4A7C59",
@@ -48,33 +51,6 @@ function RevealDiv({ children, delay = 0, className = "" }) {
   );
 }
 
-function OrbitalRing({ size, duration, reverse, balls }) {
-  return (
-    <div
-      className="absolute rounded-full"
-      style={{
-        width: size, height: size,
-        top: "50%", left: "50%",
-        transform: "translate(-50%, -50%)",
-        border: "1.5px solid rgba(74,124,89,0.22)",
-        animation: `spin${reverse ? "Rev" : ""} ${duration}s linear infinite`,
-      }}
-    >
-      {balls.map((b, i) => (
-        <div key={i} className="absolute rounded-full"
-          style={{
-            width: b.size, height: b.size,
-            background: `radial-gradient(circle at 35% 35%, ${b.color1}, ${b.color2})`,
-            boxShadow: `0 0 ${b.glow}px ${b.color1}`,
-            top: b.top ?? "auto", bottom: b.bottom ?? "auto",
-            left: b.left ?? "auto", right: b.right ?? "auto",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 function Eyebrow({ icon: Icon, children }) {
   return (
     <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-4" style={{ color: COLORS.sage, background: COLORS.sagePale, letterSpacing: "0.1em" }}>
@@ -84,7 +60,7 @@ function Eyebrow({ icon: Icon, children }) {
   );
 }
 
-function Navbar() {
+function Navbar({ user, loadingUser }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
@@ -95,15 +71,9 @@ function Navbar() {
   const links = [["#features", "Features"], ["#how", "How it works"], ["#testimonials", "Reviews"], ["#pricing", "Pricing"], ["#", "Blog"]];
   return (
     <>
+      <style>{`@keyframes spinIcon{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       <nav className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
-        style={{
-          height: 68,
-          background: scrolled ? "rgba(247,244,239,0.96)" : "rgba(247,244,239,0.82)",
-          backdropFilter: "blur(20px) saturate(160%)",
-          borderBottom: "1px solid rgba(13,17,23,0.08)",
-          boxShadow: scrolled ? "0 2px 24px rgba(13,17,23,0.07)" : "none",
-        }}
-      >
+        style={{ height: 68, background: scrolled ? "rgba(247,244,239,0.96)" : "rgba(247,244,239,0.82)", backdropFilter: "blur(20px) saturate(160%)", borderBottom: "1px solid rgba(13,17,23,0.08)", boxShadow: scrolled ? "0 2px 24px rgba(13,17,23,0.07)" : "none" }}>
         <div className="max-w-6xl mx-auto h-full px-6 flex items-center">
           <a href="#" className="flex items-center gap-2.5 no-underline flex-shrink-0">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${COLORS.sage}, ${COLORS.sageDark})` }}>
@@ -114,15 +84,35 @@ function Navbar() {
           <ul className="hidden md:flex items-center gap-1 ml-9 list-none">
             {links.map(([href, label]) => (
               <li key={label}>
-                <a href={href} className="text-sm font-medium px-3.5 py-1.5 rounded-lg transition-all duration-150 no-underline" style={{ color: COLORS.slate }} onMouseEnter={e => { e.target.style.color = COLORS.ink; e.target.style.background = "rgba(13,17,23,0.05)"; }} onMouseLeave={e => { e.target.style.color = COLORS.slate; e.target.style.background = "transparent"; }}>{label}</a>
+                <a href={href} className="text-sm font-medium px-3.5 py-1.5 rounded-lg transition-all duration-150 no-underline" style={{ color: COLORS.slate }}
+                  onMouseEnter={e => { e.target.style.color = COLORS.ink; e.target.style.background = "rgba(13,17,23,0.05)"; }}
+                  onMouseLeave={e => { e.target.style.color = COLORS.slate; e.target.style.background = "transparent"; }}>{label}</a>
               </li>
             ))}
           </ul>
           <div className="ml-auto hidden md:flex items-center gap-2.5">
-            <a href="/login" className="text-sm font-semibold px-4 py-2 rounded-xl border transition-all duration-150 no-underline" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }} onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.sage; e.currentTarget.style.background = COLORS.sagePale; e.currentTarget.style.color = COLORS.sageDark; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.ink; }}>Sign in</a>
-            <a href="/register" className="flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-xl text-white no-underline transition-all duration-150" style={{ background: COLORS.sage }} onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 4px 16px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
-              Get started free <ArrowRight size={14} />
-            </a>
+            {loadingUser ? (
+              <div className="w-8 h-8 flex items-center justify-center">
+                <Loader2 size={18} color={COLORS.slate} style={{ animation: "spinIcon 1s linear infinite" }} />
+              </div>
+            ) : user ? (
+              <a href="/dashboard" className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl text-white no-underline transition-all duration-150" style={{ background: COLORS.sage }}
+                onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 4px 16px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                <LayoutDashboard size={15} /> Go to Dashboard
+              </a>
+            ) : (
+              <>
+                <a href="/login" className="text-sm font-semibold px-4 py-2 rounded-xl border transition-all duration-150 no-underline" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.sage; e.currentTarget.style.background = COLORS.sagePale; e.currentTarget.style.color = COLORS.sageDark; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.ink; }}>Sign in</a>
+                <a href="/register" className="flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-xl text-white no-underline transition-all duration-150" style={{ background: COLORS.sage }}
+                  onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 4px 16px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                  Get started free <ArrowRight size={14} />
+                </a>
+              </>
+            )}
           </div>
           <button className="md:hidden ml-auto w-9 h-9 flex items-center justify-center rounded-xl border" style={{ borderColor: "rgba(13,17,23,0.09)", background: "none", cursor: "pointer", color: COLORS.ink }} onClick={() => setMenuOpen(v => !v)}>
             {menuOpen ? <X size={18} /> : <Menu size={18} />}
@@ -133,14 +123,23 @@ function Navbar() {
         {menuOpen && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}
             className="fixed z-40 left-0 right-0 flex flex-col gap-1 px-6 pb-6 pt-4"
-            style={{ top: 68, background: "rgba(247,244,239,0.98)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(13,17,23,0.08)" }}
-          >
+            style={{ top: 68, background: "rgba(247,244,239,0.98)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(13,17,23,0.08)" }}>
             {links.map(([href, label]) => (
-              <a key={label} href={href} onClick={() => setMenuOpen(false)} className="text-sm font-medium px-3.5 py-3 rounded-xl no-underline transition-all" style={{ color: COLORS.ink }} onMouseEnter={e => { e.target.style.background = COLORS.sagePale; }} onMouseLeave={e => { e.target.style.background = "transparent"; }}>{label}</a>
+              <a key={label} href={href} onClick={() => setMenuOpen(false)} className="text-sm font-medium px-3.5 py-3 rounded-xl no-underline transition-all" style={{ color: COLORS.ink }}
+                onMouseEnter={e => { e.target.style.background = COLORS.sagePale; }}
+                onMouseLeave={e => { e.target.style.background = "transparent"; }}>{label}</a>
             ))}
             <div className="flex gap-2.5 mt-3">
-              <a href="/login" className="flex-1 text-center text-sm font-semibold px-4 py-2.5 rounded-xl border no-underline" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }}>Sign in</a>
-              <a href="/register" className="flex-1 text-center text-sm font-semibold px-4 py-2.5 rounded-xl text-white no-underline" style={{ background: COLORS.sage }}>Get started free</a>
+              {user ? (
+                <a href="/dashboard" className="flex-1 text-center text-sm font-semibold px-4 py-2.5 rounded-xl text-white no-underline flex items-center justify-center gap-2" style={{ background: COLORS.sage }}>
+                  <LayoutDashboard size={15} /> Go to Dashboard
+                </a>
+              ) : (
+                <>
+                  <a href="/login" className="flex-1 text-center text-sm font-semibold px-4 py-2.5 rounded-xl border no-underline" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }}>Sign in</a>
+                  <a href="/register" className="flex-1 text-center text-sm font-semibold px-4 py-2.5 rounded-xl text-white no-underline" style={{ background: COLORS.sage }}>Get started free</a>
+                </>
+              )}
             </div>
           </motion.div>
         )}
@@ -149,7 +148,7 @@ function Navbar() {
   );
 }
 
-function HeroSection() {
+function HeroSection({ user, loadingUser }) {
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden" style={{ background: COLORS.paper, paddingTop: 68 }}>
       <style>{`
@@ -193,10 +192,26 @@ function HeroSection() {
               MediCore is the all-in-one platform that helps clinics in Nigeria manage appointments, patient records, billing, prescriptions, and lab results — from one beautiful dashboard.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }} className="flex flex-wrap gap-3 mb-9">
-              <a href="/register" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-sm no-underline transition-all duration-150" style={{ background: COLORS.sage }} onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 8px 28px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-2px)"; }} onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
-                Start free trial <ArrowRight size={16} />
-              </a>
-              <a href="#features" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-medium text-sm no-underline border transition-all duration-150" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }} onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.sage; e.currentTarget.style.background = COLORS.sagePale; e.currentTarget.style.color = COLORS.sageDark; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.ink; }}>
+              {loadingUser ? (
+                <div className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-sm" style={{ background: COLORS.sagePale, color: COLORS.sage }}>
+                  <Loader2 size={16} style={{ animation: "spinIcon 1s linear infinite" }} /> Loading...
+                </div>
+              ) : user ? (
+                <a href="/dashboard" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-sm no-underline transition-all duration-150" style={{ background: COLORS.sage }}
+                  onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 8px 28px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                  <LayoutDashboard size={16} /> Go to Dashboard
+                </a>
+              ) : (
+                <a href="/register" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-sm no-underline transition-all duration-150" style={{ background: COLORS.sage }}
+                  onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 8px 28px rgba(47,92,58,0.3)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                  Start free trial <ArrowRight size={16} />
+                </a>
+              )}
+              <a href="#features" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-medium text-sm no-underline border transition-all duration-150" style={{ color: COLORS.ink, borderColor: "rgba(13,17,23,0.09)" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.sage; e.currentTarget.style.background = COLORS.sagePale; e.currentTarget.style.color = COLORS.sageDark; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = COLORS.ink; }}>
                 <PlayCircle size={16} /> See how it works
               </a>
             </motion.div>
@@ -206,7 +221,7 @@ function HeroSection() {
                   <div key={i} className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white" style={{ background: bg, marginLeft: i === 0 ? 0 : -10 }}>{init}</div>
                 ))}
               </div>
-              <div className="text-sm leading-snug" style={{ color: COLORS.slate }}>Trusted by <strong style={{ color: COLORS.ink }}>142+ clinics</strong><br />across Nigeria — 14-day free trial</div>
+              <div className="text-sm leading-snug" style={{ color: COLORS.slate }}>Trusted by <strong style={{ color: COLORS.ink }}>142+ clinics</strong><br />across Nigeria</div>
             </motion.div>
           </div>
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.35 }} className="relative">
@@ -260,16 +275,15 @@ function HeroSection() {
 }
 
 function LogosSection() {
-  const clinics = ["Grace Health Clinic", "Harmony Care", "Sunrise Total Health", "Nova Prime Medical", "VitalCare Centre", "BrightMed Clinic", "PrimeMed Hospital", "ClearLife Medical"];
   const chips = [
-    { init: "GH", bg: COLORS.sagePale, color: COLORS.sage, name: clinics[0] },
-    { init: "HC", bg: COLORS.goldPale, color: COLORS.gold, name: clinics[1] },
-    { init: "ST", bg: COLORS.blushPale, color: COLORS.blush, name: clinics[2] },
-    { init: "NP", bg: "#F5F0F8", color: "#6A3D85", name: clinics[3] },
-    { init: "VC", bg: "#EEF2F7", color: COLORS.slate, name: clinics[4] },
-    { init: "BM", bg: COLORS.sagePale, color: COLORS.sage, name: clinics[5] },
-    { init: "PM", bg: COLORS.goldPale, color: COLORS.gold, name: clinics[6] },
-    { init: "CL", bg: COLORS.blushPale, color: COLORS.blush, name: clinics[7] },
+    { init: "GH", bg: COLORS.sagePale, color: COLORS.sage, name: "Grace Health Clinic" },
+    { init: "HC", bg: COLORS.goldPale, color: COLORS.gold, name: "Harmony Care" },
+    { init: "ST", bg: COLORS.blushPale, color: COLORS.blush, name: "Sunrise Total Health" },
+    { init: "NP", bg: "#F5F0F8", color: "#6A3D85", name: "Nova Prime Medical" },
+    { init: "VC", bg: "#EEF2F7", color: COLORS.slate, name: "VitalCare Centre" },
+    { init: "BM", bg: COLORS.sagePale, color: COLORS.sage, name: "BrightMed Clinic" },
+    { init: "PM", bg: COLORS.goldPale, color: COLORS.gold, name: "PrimeMed Hospital" },
+    { init: "CL", bg: COLORS.blushPale, color: COLORS.blush, name: "ClearLife Medical" },
   ];
   const all = [...chips, ...chips];
   return (
@@ -281,7 +295,7 @@ function LogosSection() {
         <div className="absolute top-0 bottom-0 right-0 w-32 z-10 pointer-events-none" style={{ background: "linear-gradient(to left, #fff, transparent)" }} />
         <div className="flex items-center gap-12" style={{ width: "max-content", animation: "scrollTrack 28s linear infinite" }}>
           {all.map(({ init, bg, color, name }, i) => (
-            <div key={i} className="flex items-center gap-2.5 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 cursor-default" style={{ color: "rgba(13,17,23,0.35)" }}>
+            <div key={i} className="flex items-center gap-2.5 text-sm font-semibold whitespace-nowrap flex-shrink-0" style={{ color: "rgba(13,17,23,0.35)" }}>
               <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-extrabold flex-shrink-0" style={{ background: bg, color }}>{init}</div>
               {name}
             </div>
@@ -305,7 +319,9 @@ function StatsSection() {
         <RevealDiv>
           <div className="grid grid-cols-2 lg:grid-cols-4 rounded-2xl overflow-hidden border" style={{ background: "rgba(13,17,23,0.09)", borderColor: "rgba(13,17,23,0.09)" }}>
             {stats.map(({ num, sup, pre, label, sub }) => (
-              <div key={label} className="p-9 transition-colors duration-200 cursor-default group" style={{ background: "#fff" }} onMouseEnter={e => e.currentTarget.style.background = COLORS.sagePale} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+              <div key={label} className="p-9 transition-colors duration-200 cursor-default" style={{ background: "#fff" }}
+                onMouseEnter={e => e.currentTarget.style.background = COLORS.sagePale}
+                onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
                 <div className="font-serif mb-2 leading-none" style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(34px,4vw,52px)", color: COLORS.ink }}>
                   {pre && <span style={{ color: COLORS.sage }}>{pre}</span>}{num}{sup && <span style={{ color: COLORS.sage }}>{sup}</span>}
                 </div>
@@ -326,10 +342,10 @@ function FeaturesSection() {
     { icon: FileHeart, bg: COLORS.goldPale, color: COLORS.gold, title: "Patient Records", desc: "Secure, searchable digital health records. Full history, consultation notes, allergies, conditions, and documents — all in one place.", tags: ["EMR", "History", "Documents"] },
     { icon: Receipt, bg: COLORS.blushPale, color: COLORS.blush, title: "Billing & Invoicing", desc: "Generate invoices in seconds, collect payments, track outstanding bills, and produce receipts. Full audit trail for every transaction.", tags: ["Invoices", "Payments", "Receipts"] },
     { icon: Pill, bg: COLORS.sagePale, color: COLORS.sage, title: "Prescriptions", desc: "Doctors issue digital prescriptions attached to the patient record. Patients can view and download their prescriptions from the portal.", tags: ["Digital Rx", "Refill requests", "History"] },
-    { icon: FlaskConical, bg: "#EEF2F7", color: COLORS.slate, title: "Lab Requests & Results", desc: "Doctors request tests from within the platform. Lab results are uploaded and linked directly to the patient's record. No paper trail needed.", tags: ["Lab requests", "Results", "Notifications"] },
+    { icon: FlaskConical, bg: "#EEF2F7", color: COLORS.slate, title: "Lab Requests & Results", desc: "Doctors request tests from within the platform. Lab results are uploaded and linked directly to the patient's record.", tags: ["Lab requests", "Results", "Notifications"] },
     { icon: Users, bg: COLORS.sagePale, color: COLORS.sage, title: "Multi-Role Access", desc: "Role-based dashboards for clinic admins, doctors, receptionists, nurses, and patients. Each role sees exactly what they need.", tags: ["Roles", "Permissions", "Multi-branch"] },
     { icon: ShieldCheck, bg: "#F5F0F8", color: "#6A3D85", title: "Security & Compliance", desc: "End-to-end encryption, role-based access control, and full audit logs. Your patient data is always protected and private.", tags: ["Encryption", "Audit log", "HIPAA-aligned"] },
-    { icon: BarChart2, bg: COLORS.goldPale, color: COLORS.gold, title: "Reports & Analytics", desc: "Daily, weekly, and monthly reports on revenue, appointments, patient flow, and staff performance. Make data-driven decisions confidently.", tags: ["Revenue reports", "Trends", "Export"] },
+    { icon: BarChart2, bg: COLORS.goldPale, color: COLORS.gold, title: "Reports & Analytics", desc: "Daily, weekly, and monthly reports on revenue, appointments, patient flow, and staff performance.", tags: ["Revenue reports", "Trends", "Export"] },
     { icon: MessageCircle, bg: COLORS.blushPale, color: COLORS.blush, title: "Patient Portal & Messaging", desc: "Patients get their own portal to book appointments, view records, download reports, pay bills, and message their care team directly.", tags: ["Self-service", "Messaging", "Mobile-ready"] },
   ];
   return (
@@ -347,8 +363,7 @@ function FeaturesSection() {
             <RevealDiv key={title} delay={(i % 3) * 0.1}>
               <div className="p-7 rounded-2xl border cursor-default transition-all duration-200 h-full" style={{ background: COLORS.paper, borderColor: "rgba(13,17,23,0.09)" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = COLORS.sage; e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 36px rgba(74,124,89,0.1)"; e.currentTarget.style.background = "#fff"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.background = COLORS.paper; }}
-              >
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,17,23,0.09)"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.background = COLORS.paper; }}>
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4" style={{ background: bg }}><Icon size={22} color={color} /></div>
                 <h3 className="font-serif text-lg mb-2.5" style={{ fontFamily: "'DM Serif Display', serif", color: COLORS.ink }}>{title}</h3>
                 <p className="text-sm leading-relaxed mb-4" style={{ color: COLORS.slate }}>{desc}</p>
@@ -372,11 +387,11 @@ function ShowcaseSection() {
           <div>
             <Eyebrow icon={CalendarCheck}>Appointments</Eyebrow>
             <h2 className="font-serif mb-4" style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(26px,3.5vw,40px)", color: COLORS.ink, lineHeight: 1.2 }}>Full visibility on <em style={{ color: COLORS.sage }}>every patient</em>, every day.</h2>
-            <p className="text-sm leading-relaxed mb-6" style={{ color: COLORS.slate }}>Your front desk, doctors, and managers all see the same live schedule — from check-in to consultation to discharge. No confusion, no missed appointments.</p>
+            <p className="text-sm leading-relaxed mb-6" style={{ color: COLORS.slate }}>Your front desk, doctors, and managers all see the same live schedule — from check-in to consultation to discharge.</p>
             <ul className="flex flex-col gap-3">
               {["Live appointment timeline per doctor", "Walk-in queue with automatic wait-time estimates", "Automated SMS reminders to reduce no-shows", "Check-in tracking with room assignments"].map(item => (
                 <li key={item} className="flex items-center gap-2.5 text-sm" style={{ color: COLORS.ink }}>
-                  <div className="w-4.5 h-4.5 rounded-full flex-shrink-0 flex items-center justify-center" style={{ background: COLORS.sage, width: 18, height: 18 }}><Check size={10} color="#fff" strokeWidth={3} /></div>
+                  <div className="flex-shrink-0 flex items-center justify-center rounded-full" style={{ background: COLORS.sage, width: 18, height: 18 }}><Check size={10} color="#fff" strokeWidth={3} /></div>
                   {item}
                 </li>
               ))}
@@ -439,7 +454,7 @@ function ShowcaseSection() {
           <div className="lg:order-2">
             <Eyebrow icon={Banknote}>Billing</Eyebrow>
             <h2 className="font-serif mb-4" style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(26px,3.5vw,40px)", color: COLORS.ink, lineHeight: 1.2 }}>Get paid faster with <em style={{ color: COLORS.sage }}>smart billing</em>.</h2>
-            <p className="text-sm leading-relaxed mb-6" style={{ color: COLORS.slate }}>Generate invoices instantly after consultation, track who has paid and who hasn't, and send automatic payment reminders — all without leaving MediCore.</p>
+            <p className="text-sm leading-relaxed mb-6" style={{ color: COLORS.slate }}>Generate invoices instantly after consultation, track who has paid and who hasn't, and send automatic payment reminders.</p>
             <ul className="flex flex-col gap-3">
               {["One-click invoice generation post-consultation", "Track outstanding, paid, and overdue bills", "Automated reminders for unpaid invoices", "Detailed financial reports by day, week, or month"].map(item => (
                 <li key={item} className="flex items-center gap-2.5 text-sm" style={{ color: COLORS.ink }}>
@@ -474,7 +489,7 @@ function HowSection() {
           <div className="absolute hidden lg:block" style={{ top: 36, left: "calc(12.5% + 12px)", right: "calc(12.5% + 12px)", height: 1.5, background: `linear-gradient(90deg, ${COLORS.sagePale}, ${COLORS.sage}, ${COLORS.sagePale})` }} />
           {steps.map(({ icon: Icon, label, desc, active }, i) => (
             <RevealDiv key={label} delay={i * 0.1} className="text-center px-4 relative z-10">
-              <div className="w-18 h-18 rounded-full mx-auto mb-5 flex items-center justify-center border-2 transition-all duration-200" style={{ width: 72, height: 72, background: active ? COLORS.sage : "#fff", borderColor: active ? COLORS.sage : "rgba(13,17,23,0.09)", color: active ? "#fff" : COLORS.sage }}>
+              <div className="rounded-full mx-auto mb-5 flex items-center justify-center border-2 transition-all duration-200" style={{ width: 72, height: 72, background: active ? COLORS.sage : "#fff", borderColor: active ? COLORS.sage : "rgba(13,17,23,0.09)", color: active ? "#fff" : COLORS.sage }}>
                 <Icon size={28} />
               </div>
               <h3 className="font-serif text-lg mb-2.5" style={{ fontFamily: "'DM Serif Display', serif", color: COLORS.ink }}>{label}</h3>
@@ -520,8 +535,7 @@ function TestimonialsSection() {
           {all.map(({ quote, name, role, init, bg }, i) => (
             <div key={i} className="rounded-2xl p-6 flex-shrink-0 cursor-default transition-all duration-200" style={{ width: 360, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
               onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.09)"; e.currentTarget.style.borderColor = "rgba(74,124,89,0.35)"; e.currentTarget.style.transform = "translateY(-4px)"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)"; e.currentTarget.style.transform = "none"; }}
-            >
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)"; e.currentTarget.style.transform = "none"; }}>
               <div className="flex gap-1 mb-3.5" style={{ color: COLORS.gold }}>{"★★★★★".split("").map((s, j) => <span key={j} className="text-sm">{s}</span>)}</div>
               <p className="text-sm leading-relaxed mb-5 italic" style={{ color: "rgba(255,255,255,0.75)" }}>"{quote}"</p>
               <div className="flex items-center gap-3">
@@ -539,74 +553,299 @@ function TestimonialsSection() {
   );
 }
 
-function PricingSection() {
+function formatPermLabel(name) {
+  return name.replace(/[._:-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function groupPermissions(permissions) {
+  const groups = {};
+  permissions.forEach(p => {
+    const parts = p.split(/[._:]/);
+    const group = parts.length > 1
+      ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+      : "General";
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(p);
+  });
+  return groups;
+}
+
+function PricingSection({ subs, loading, error }) {
   const [isAnnual, setIsAnnual] = useState(false);
-  const plans = [
-    {
-      tier: "Starter", monthlyPrice: "120k", annualPrice: "96k", period: "per month",
-      desc: "For small clinics just getting started with digital management.", featured: false,
-      features: ["Up to 10 staff accounts", "1 clinic branch", "Appointments & scheduling", "Basic patient records", "Invoicing & billing", "Email support"],
-    },
-    {
-      tier: "Pro", monthlyPrice: "450k", annualPrice: "360k", period: "per month",
-      desc: "For growing clinics that need the full platform across a team.", featured: true,
-      features: ["Up to 50 staff accounts", "Up to 3 branches", "Full EMR & patient portal", "Lab requests & results", "Prescriptions management", "Advanced analytics", "Priority support"],
-    },
-    {
-      tier: "Enterprise", monthlyPrice: null, annualPrice: null, period: "tailored to your network",
-      desc: "For hospital networks and multi-branch operations with complex needs.", featured: false,
-      features: ["Unlimited staff & branches", "Custom integrations", "White-label options", "Dedicated account manager", "Custom SLA & uptime", "24/7 phone support"],
-    },
-  ];
+  const [activeTab, setActiveTab] = useState("cards");
+  const [subPermissionsMap, setSubPermissionsMap] = useState({});
+  const [allPermissions, setAllPermissions] = useState([]);
+  const [permsLoading, setPermsLoading] = useState(false);
+  const [permsError, setPermsError] = useState(null);
+
+  const allSubs = (subs || []);
+  const tableHeaderSubs = allSubs.filter(s => s.name !== "Free");
+
+  useEffect(() => {
+    if (!allSubs.length) return;
+    setPermsLoading(true);
+    setPermsError(null);
+    Promise.all(
+      allSubs.map(s =>
+        axiosInstance.get(`/subscriptions/${s.id}/permissions`)
+          .then(r => ({ id: s.id, permissions: r.data?.data?.permissions || [] }))
+          .catch(() => ({ id: s.id, permissions: [] }))
+      )
+    ).then(results => {
+      const map = {};
+      const allSet = new Set();
+      results.forEach(({ id, permissions }) => {
+        map[id] = permissions;
+        permissions.forEach(p => allSet.add(p));
+      });
+      setSubPermissionsMap(map);
+      setAllPermissions(Array.from(allSet).sort());
+      setPermsLoading(false);
+    }).catch(() => {
+      setPermsError("Failed to load permissions");
+      setPermsLoading(false);
+    });
+  }, [subs]);
+
+  const formatPrice = (sub) => {
+    const price = isAnnual ? sub.price_yearly : sub.price_monthly;
+    if (!price) return null;
+    const num = parseFloat(price);
+    return num >= 1000 ? `${(num / 1000).toFixed(0)}k` : `${num.toFixed(0)}`;
+  };
+
+  const groupedPerms = groupPermissions(allPermissions);
+
   return (
     <section id="pricing" className="py-24" style={{ background: COLORS.paper }}>
       <div className="max-w-6xl mx-auto px-6">
         <RevealDiv className="text-center max-w-lg mx-auto mb-14">
           <Eyebrow icon={Tag}>Pricing</Eyebrow>
-          <h2 className="font-serif mb-4" style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(28px,4vw,46px)", color: COLORS.ink, lineHeight: 1.2 }}>Simple, <em style={{ color: COLORS.sage }}>transparent</em> pricing</h2>
-          <p className="text-base leading-relaxed" style={{ color: COLORS.slate }}>All plans include a 14-day free trial. No credit card required to start.</p>
+          <h2 className="font-serif mb-4" style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(28px,4vw,46px)", color: COLORS.ink, lineHeight: 1.2 }}>
+            Simple, <em style={{ color: COLORS.sage }}>transparent</em> pricing
+          </h2>
+          <p className="text-base leading-relaxed" style={{ color: COLORS.slate }}>Choose the plan that fits your clinic. Upgrade or downgrade anytime.</p>
         </RevealDiv>
-        <RevealDiv className="flex items-center justify-center gap-3 mb-12">
+
+        <RevealDiv className="flex items-center justify-center gap-3 mb-10">
           <span className="text-sm font-medium cursor-pointer" style={{ color: !isAnnual ? COLORS.ink : COLORS.slate, fontWeight: !isAnnual ? 600 : 500 }} onClick={() => setIsAnnual(false)}>Monthly</span>
-          <div className="w-11 h-6 rounded-full relative cursor-pointer transition-all duration-200" style={{ background: COLORS.sage }} onClick={() => setIsAnnual(v => !v)}>
-            <div className="absolute w-4.5 h-4.5 bg-white rounded-full transition-all duration-200" style={{ width: 18, height: 18, top: 3, left: isAnnual ? 20 : 3 }} />
+          <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ background: COLORS.sage }} onClick={() => setIsAnnual(v => !v)}>
+            <div className="absolute bg-white rounded-full transition-all duration-200" style={{ width: 18, height: 18, top: 3, left: isAnnual ? 20 : 3 }} />
           </div>
           <span className="text-sm font-medium cursor-pointer" style={{ color: isAnnual ? COLORS.ink : COLORS.slate, fontWeight: isAnnual ? 600 : 500 }} onClick={() => setIsAnnual(true)}>Annual</span>
           <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: COLORS.blush }}>Save 20%</span>
         </RevealDiv>
-        <RevealDiv className="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-4xl lg:max-w-none mx-auto">
-          {plans.map(({ tier, monthlyPrice, annualPrice, period, desc, featured, features }) => (
-            <div key={tier} className="rounded-2xl p-8 relative transition-all duration-200" style={{ background: featured ? COLORS.ink : "#fff", border: `1.5px solid ${featured ? COLORS.sage : "rgba(13,17,23,0.09)"}`, boxShadow: featured ? "0 20px 60px rgba(13,17,23,0.2)" : "none" }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = featured ? "0 28px 70px rgba(13,17,23,0.25)" : "0 16px 48px rgba(13,17,23,0.1)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = featured ? "0 20px 60px rgba(13,17,23,0.2)" : "none"; }}
-            >
-              {featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3.5 py-1 rounded-full text-xs font-bold text-white tracking-wide" style={{ background: COLORS.sage }}>Most popular</div>}
-              <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color: featured ? "rgba(255,255,255,0.45)" : COLORS.slate, letterSpacing: "0.1em" }}>{tier}</div>
-              <div className="font-serif leading-none mb-2" style={{ fontFamily: "'DM Serif Display', serif", fontSize: 40, color: featured ? "#fff" : COLORS.ink }}>
-                {monthlyPrice ? <><sup style={{ fontSize: 18, fontFamily: "inherit", verticalAlign: "top", marginTop: 8, display: "inline-block" }}>₦</sup>{isAnnual ? annualPrice : monthlyPrice}</> : "Custom"}
-              </div>
-              <div className="text-sm mb-5" style={{ color: featured ? "rgba(255,255,255,0.4)" : COLORS.slate }}>{period} · {isAnnual ? "billed annually" : "billed monthly"}</div>
-              <div className="text-sm leading-relaxed mb-6" style={{ color: featured ? "rgba(255,255,255,0.55)" : COLORS.slate }}>{desc}</div>
-              <div className="h-px mb-6" style={{ background: featured ? "rgba(255,255,255,0.1)" : "rgba(13,17,23,0.09)" }} />
-              <ul className="flex flex-col gap-2.5 mb-7">
-                {features.map(f => (
-                  <li key={f} className="flex items-center gap-2.5 text-sm" style={{ color: featured ? "rgba(255,255,255,0.8)" : COLORS.ink }}>
-                    <div className="flex-shrink-0 flex items-center justify-center rounded-full" style={{ width: 18, height: 18, background: featured ? "rgba(74,124,89,0.25)" : COLORS.sagePale }}>
-                      <Check size={10} color={COLORS.sage} strokeWidth={3} />
-                    </div>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <button className="w-full py-3 rounded-xl text-sm font-semibold border transition-all duration-150 cursor-pointer" style={{ background: featured ? COLORS.sage : "transparent", color: featured ? "#fff" : COLORS.ink, borderColor: featured ? COLORS.sage : "rgba(13,17,23,0.09)", fontFamily: "inherit" }}
-                onMouseEnter={e => { if (featured) { e.target.style.background = COLORS.sageDark; e.target.style.boxShadow = "0 6px 20px rgba(47,92,58,0.3)"; } else { e.target.style.borderColor = COLORS.sage; e.target.style.background = COLORS.sagePale; e.target.style.color = COLORS.sageDark; } }}
-                onMouseLeave={e => { if (featured) { e.target.style.background = COLORS.sage; e.target.style.boxShadow = "none"; } else { e.target.style.borderColor = "rgba(13,17,23,0.09)"; e.target.style.background = "transparent"; e.target.style.color = COLORS.ink; } }}
-              >
-                {tier === "Enterprise" ? "Contact sales" : "Start free trial"}
-              </button>
-            </div>
+
+        <RevealDiv className="flex items-center justify-center gap-2 mb-10">
+          {[["cards", "Plan Cards"], ["table", "Permissions Table"]].map(([tab, label]) => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className="text-sm font-semibold px-5 py-2.5 rounded-xl border cursor-pointer transition-all duration-150"
+              style={{ background: activeTab === tab ? COLORS.ink : "#fff", color: activeTab === tab ? "#fff" : COLORS.slate, borderColor: activeTab === tab ? COLORS.ink : "rgba(13,17,23,0.09)", fontFamily: "inherit" }}>
+              {label}
+            </button>
           ))}
         </RevealDiv>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-3" style={{ color: COLORS.slate }}>
+            <Loader2 size={22} style={{ animation: "spinIcon 1s linear infinite" }} />
+            <span className="text-sm font-medium">Loading plans...</span>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center py-20 gap-3 rounded-2xl border" style={{ borderColor: "rgba(232,146,124,0.3)", background: COLORS.blushPale, color: COLORS.blush }}>
+            <AlertCircle size={18} /><span className="text-sm font-medium">{error}</span>
+          </div>
+        ) : (
+          <>
+            {activeTab === "cards" && (
+              <RevealDiv className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mx-auto">
+                {allSubs.map(sub => {
+                  const isFeatured = sub.name === "Pro";
+                  const isFree = sub.name === "Free";
+                  const price = formatPrice(sub);
+                  const perms = subPermissionsMap[sub.id] || [];
+
+                  const ctaLabel = sub.name === "Enterprise" ? "Contact sales" : isFree ? "Get started free" : "Get started";
+
+                  return (
+                    <div key={sub.id} className="rounded-2xl p-7 relative transition-all duration-200"
+                      style={{ background: isFeatured ? COLORS.ink : "#fff", border: `1.5px solid ${isFeatured ? COLORS.sage : "rgba(13,17,23,0.09)"}`, boxShadow: isFeatured ? "0 20px 60px rgba(13,17,23,0.2)" : "none" }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = isFeatured ? "0 28px 70px rgba(13,17,23,0.25)" : "0 16px 48px rgba(13,17,23,0.1)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = isFeatured ? "0 20px 60px rgba(13,17,23,0.2)" : "none"; }}>
+                      {isFeatured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3.5 py-1 rounded-full text-xs font-bold text-white tracking-wide" style={{ background: COLORS.sage }}>Most popular</div>}
+
+                      <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color: isFeatured ? "rgba(255,255,255,0.45)" : COLORS.slate, letterSpacing: "0.1em" }}>{sub.name}</div>
+                      <div className="font-serif leading-none mb-2" style={{ fontFamily: "'DM Serif Display', serif", fontSize: 40, color: isFeatured ? "#fff" : COLORS.ink }}>
+                        {isFree
+                          ? "Free"
+                          : price
+                            ? <><sup style={{ fontSize: 18, fontFamily: "inherit", verticalAlign: "top", marginTop: 8, display: "inline-block" }}>₦</sup>{price}</>
+                            : "Custom"}
+                      </div>
+                      <div className="text-sm mb-4" style={{ color: isFeatured ? "rgba(255,255,255,0.4)" : COLORS.slate }}>
+                        {isFree ? "no credit card needed" : sub.price_monthly ? `per month · ${isAnnual ? "billed annually" : "billed monthly"}` : "tailored to your network"}
+                      </div>
+                      <div className="text-sm leading-relaxed mb-5" style={{ color: isFeatured ? "rgba(255,255,255,0.55)" : COLORS.slate }}>{sub.description}</div>
+
+                      <div className="flex flex-wrap gap-2 mb-5">
+                        {sub.max_users != null && (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: isFeatured ? "rgba(255,255,255,0.1)" : COLORS.sagePale, color: isFeatured ? "rgba(255,255,255,0.7)" : COLORS.sageDark }}>
+                            {sub.max_users} users
+                          </span>
+                        )}
+                        {sub.max_branches != null && (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: isFeatured ? "rgba(255,255,255,0.1)" : COLORS.sagePale, color: isFeatured ? "rgba(255,255,255,0.7)" : COLORS.sageDark }}>
+                            {sub.max_branches} {sub.max_branches === 1 ? "branch" : "branches"}
+                          </span>
+                        )}
+                        {sub.max_storage_mb != null && (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: isFeatured ? "rgba(255,255,255,0.1)" : COLORS.sagePale, color: isFeatured ? "rgba(255,255,255,0.7)" : COLORS.sageDark }}>
+                            {sub.max_storage_mb >= 1024 ? `${sub.max_storage_mb / 1024}GB` : `${sub.max_storage_mb}MB`} storage
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="h-px mb-5" style={{ background: isFeatured ? "rgba(255,255,255,0.1)" : "rgba(13,17,23,0.09)" }} />
+
+                      {permsLoading ? (
+                        <div className="flex items-center gap-2 mb-6" style={{ color: isFeatured ? "rgba(255,255,255,0.4)" : COLORS.slate }}>
+                          <Loader2 size={13} style={{ animation: "spinIcon 1s linear infinite" }} />
+                          <span className="text-xs">Loading permissions...</span>
+                        </div>
+                      ) : perms.length > 0 ? (
+                        <ul className="flex flex-col gap-2 mb-7">
+                          {perms.slice(0, 8).map(p => (
+                            <li key={p} className="flex items-center gap-2.5 text-xs" style={{ color: isFeatured ? "rgba(255,255,255,0.75)" : COLORS.ink }}>
+                              <div className="flex-shrink-0 flex items-center justify-center rounded-full" style={{ width: 16, height: 16, background: isFeatured ? "rgba(74,124,89,0.3)" : COLORS.sagePale }}>
+                                <Check size={9} color={COLORS.sage} strokeWidth={3} />
+                              </div>
+                              {formatPermLabel(p)}
+                            </li>
+                          ))}
+                          {perms.length > 8 && (
+                            <li className="text-xs font-semibold pl-6" style={{ color: isFeatured ? "rgba(255,255,255,0.35)" : COLORS.slate }}>
+                              +{perms.length - 8} more — view permission table
+                            </li>
+                          )}
+                        </ul>
+                      ) : (
+                        <div className="flex items-center gap-2 mb-6 text-xs" style={{ color: isFeatured ? "rgba(255,255,255,0.3)" : COLORS.slate }}>
+                          <Lock size={12} /> No permission data
+                        </div>
+                      )}
+
+                      <button className="w-full py-3 rounded-xl text-sm font-semibold border transition-all duration-150 cursor-pointer"
+                        style={{ background: isFeatured ? COLORS.sage : "transparent", color: isFeatured ? "#fff" : COLORS.ink, borderColor: isFeatured ? COLORS.sage : "rgba(13,17,23,0.09)", fontFamily: "inherit" }}
+                        onMouseEnter={e => { if (isFeatured) { e.target.style.background = COLORS.sageDark; e.target.style.boxShadow = "0 6px 20px rgba(47,92,58,0.3)"; } else { e.target.style.borderColor = COLORS.sage; e.target.style.background = COLORS.sagePale; e.target.style.color = COLORS.sageDark; } }}
+                        onMouseLeave={e => { if (isFeatured) { e.target.style.background = COLORS.sage; e.target.style.boxShadow = "none"; } else { e.target.style.borderColor = "rgba(13,17,23,0.09)"; e.target.style.background = "transparent"; e.target.style.color = COLORS.ink; } }}>
+                        {ctaLabel}
+                      </button>
+                    </div>
+                  );
+                })}
+              </RevealDiv>
+            )}
+
+            {activeTab === "table" && (
+              <RevealDiv>
+                {permsLoading ? (
+                  <div className="flex items-center justify-center py-20 gap-3" style={{ color: COLORS.slate }}>
+                    <Loader2 size={22} style={{ animation: "spinIcon 1s linear infinite" }} />
+                    <span className="text-sm font-medium">Loading permissions...</span>
+                  </div>
+                ) : permsError ? (
+                  <div className="flex items-center justify-center py-16 gap-3 rounded-2xl border" style={{ borderColor: "rgba(232,146,124,0.3)", background: COLORS.blushPale, color: COLORS.blush }}>
+                    <AlertCircle size={18} /><span className="text-sm font-medium">{permsError}</span>
+                  </div>
+                ) : allPermissions.length === 0 ? (
+                  <div className="text-center py-16 rounded-2xl border" style={{ borderColor: "rgba(13,17,23,0.09)", background: "#fff" }}>
+                    <div className="flex items-center justify-center mb-3" style={{ opacity: 0.25 }}><Lock size={36} color={COLORS.ink} /></div>
+                    <p className="text-sm font-semibold" style={{ color: COLORS.ink }}>No permissions data available</p>
+                    <p className="text-xs mt-1.5" style={{ color: COLORS.slate }}>Make sure GET /subscriptions/:id/permissions returns data</p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "rgba(13,17,23,0.09)" }}>
+                    <div className="overflow-x-auto">
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                        <thead>
+                          <tr style={{ background: COLORS.ink }}>
+                            <th style={{ padding: "16px 20px", textAlign: "left", color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", width: "40%" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <Shield size={13} /> Permission
+                              </div>
+                            </th>
+                            {tableHeaderSubs.map(sub => (
+                              <th key={sub.id} style={{ padding: "16px 20px", textAlign: "center", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
+                                <div style={{ color: sub.name === "Pro" ? COLORS.sageLight : "rgba(255,255,255,0.7)" }}>{sub.name}</div>
+                                {sub.price_monthly && (
+                                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontWeight: 400, marginTop: 3 }}>
+                                    ₦{(parseFloat(isAnnual ? sub.price_yearly : sub.price_monthly) / 1000).toFixed(0)}k/mo
+                                  </div>
+                                )}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(groupedPerms).map(([group, perms], gi) => (
+                            <>
+                              <tr key={`g-${gi}`} style={{ background: COLORS.sagePale }}>
+                                <td colSpan={tableHeaderSubs.length + 1} style={{ padding: "7px 20px", fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: COLORS.sageDark, borderBottom: "1px solid rgba(74,124,89,0.15)" }}>
+                                  {group}
+                                </td>
+                              </tr>
+                              {perms.map((perm, pi) => {
+                                const isEven = pi % 2 === 0;
+                                return (
+                                  <tr key={perm} style={{ background: isEven ? "#fff" : COLORS.paper }}
+                                    onMouseEnter={e => e.currentTarget.style.background = COLORS.sagePale}
+                                    onMouseLeave={e => e.currentTarget.style.background = isEven ? "#fff" : COLORS.paper}>
+                                    <td style={{ padding: "11px 20px", borderBottom: "1px solid rgba(13,17,23,0.05)" }}>
+                                      <div className="text-sm font-medium" style={{ color: COLORS.ink }}>{formatPermLabel(perm)}</div>
+                                      <div style={{ fontSize: 10, color: COLORS.slate, marginTop: 1, fontFamily: "monospace" }}>{perm}</div>
+                                    </td>
+                                    {tableHeaderSubs.map(sub => {
+                                      const has = (subPermissionsMap[sub.id] || []).includes(perm);
+                                      return (
+                                        <td key={sub.id} style={{ padding: "11px 20px", textAlign: "center", borderBottom: "1px solid rgba(13,17,23,0.05)", borderLeft: "1px solid rgba(13,17,23,0.04)" }}>
+                                          {has ? (
+                                            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: "50%", background: COLORS.sagePale }}>
+                                              <Check size={12} color={COLORS.sage} strokeWidth={3} />
+                                            </div>
+                                          ) : (
+                                            <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: "50%", background: "rgba(13,17,23,0.04)" }}>
+                                              <X size={11} color="rgba(13,17,23,0.18)" strokeWidth={2.5} />
+                                            </div>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })}
+                            </>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: COLORS.paper, borderTop: "2px solid rgba(13,17,23,0.09)" }}>
+                            <td style={{ padding: "13px 20px" }}>
+                              <span style={{ fontSize: 11, color: COLORS.slate, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Total permissions</span>
+                            </td>
+                            {tableHeaderSubs.map(sub => (
+                              <td key={sub.id} style={{ padding: "13px 20px", textAlign: "center", borderLeft: "1px solid rgba(13,17,23,0.06)" }}>
+                                <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.sage }}>{(subPermissionsMap[sub.id] || []).length}</span>
+                                <span style={{ fontSize: 11, color: COLORS.slate, marginLeft: 3 }}>/ {allPermissions.length}</span>
+                              </td>
+                            ))}
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </RevealDiv>
+            )}
+          </>
+        )}
       </div>
     </section>
   );
@@ -624,13 +863,17 @@ function CTASection() {
               Ready to modernise<br />your <em style={{ color: COLORS.sageLight }}>clinic?</em>
             </h2>
             <p className="text-base leading-relaxed mb-9 relative z-10" style={{ color: "rgba(255,255,255,0.55)", maxWidth: 500, margin: "0 auto 36px" }}>
-              Join 142+ clinics already running smarter operations with MediCore. Start your free 14-day trial today — no credit card needed.
+              Join 142+ clinics already running smarter operations with MediCore.
             </p>
             <div className="flex flex-wrap gap-3 justify-center relative z-10">
-              <a href="/register" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-sm no-underline transition-all duration-150" style={{ background: COLORS.sage }} onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 8px 28px rgba(47,92,58,0.4)"; }} onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; }}>
+              <a href="/register" className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold text-sm no-underline transition-all duration-150" style={{ background: COLORS.sage }}
+                onMouseEnter={e => { e.currentTarget.style.background = COLORS.sageDark; e.currentTarget.style.boxShadow = "0 8px 28px rgba(47,92,58,0.4)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.boxShadow = "none"; }}>
                 Get started free <ArrowRight size={15} />
               </a>
-              <a href="#features" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-medium text-sm no-underline border transition-all duration-150" style={{ color: "rgba(255,255,255,0.8)", borderColor: "rgba(255,255,255,0.2)" }} onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)"; e.currentTarget.style.background = "transparent"; }}>
+              <a href="#features" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-medium text-sm no-underline border transition-all duration-150" style={{ color: "rgba(255,255,255,0.8)", borderColor: "rgba(255,255,255,0.2)" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)"; e.currentTarget.style.background = "transparent"; }}>
                 Explore features
               </a>
             </div>
@@ -649,7 +892,7 @@ function Footer() {
     { title: "Support", links: ["Help Centre", "Onboarding Guide", "Status page", "Security", "Privacy Policy"] },
   ];
   return (
-    <footer className="pt-18 pb-8" style={{ background: COLORS.ink, paddingTop: 72 }}>
+    <footer style={{ background: COLORS.ink, paddingTop: 72, paddingBottom: 32 }}>
       <div className="max-w-6xl mx-auto px-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-12 mb-14">
           <div>
@@ -662,7 +905,10 @@ function Footer() {
             <p className="text-sm leading-relaxed mb-5" style={{ color: "rgba(255,255,255,0.38)", maxWidth: 260 }}>The all-in-one clinic management platform built for healthcare providers in Nigeria. Modern, fast, and secure.</p>
             <div className="flex gap-2.5">
               {socials.map(({ icon: Icon, label }) => (
-                <a key={label} href="#" aria-label={label} className="w-9 h-9 rounded-xl flex items-center justify-center no-underline transition-all duration-150" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" }} onMouseEnter={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = COLORS.sage; }} onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}>
+                <a key={label} href="#" aria-label={label} className="w-9 h-9 rounded-xl flex items-center justify-center no-underline transition-all duration-150"
+                  style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = COLORS.sage; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = COLORS.sage; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}>
                   <Icon size={15} />
                 </a>
               ))}
@@ -673,7 +919,9 @@ function Footer() {
               <h4 className="text-xs font-bold uppercase tracking-widest mb-3.5" style={{ color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em" }}>{title}</h4>
               <ul className="flex flex-col gap-2 list-none">
                 {links.map(link => (
-                  <li key={link}><a href="#" className="text-sm no-underline transition-colors duration-150" style={{ color: "rgba(255,255,255,0.55)" }} onMouseEnter={e => e.target.style.color = "#fff"} onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.55)"}>{link}</a></li>
+                  <li key={link}><a href="#" className="text-sm no-underline transition-colors duration-150" style={{ color: "rgba(255,255,255,0.55)" }}
+                    onMouseEnter={e => e.target.style.color = "#fff"}
+                    onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.55)"}>{link}</a></li>
                 ))}
               </ul>
             </div>
@@ -683,7 +931,9 @@ function Footer() {
           <p className="text-xs" style={{ color: "rgba(255,255,255,0.28)" }}>© 2026 MediCore Technologies Ltd. All rights reserved. · Made with care for Nigerian healthcare.</p>
           <div className="flex gap-5">
             {["Privacy", "Terms", "Cookies"].map(l => (
-              <a key={l} href="#" className="text-xs no-underline transition-colors duration-150" style={{ color: "rgba(255,255,255,0.3)" }} onMouseEnter={e => e.target.style.color = "rgba(255,255,255,0.7)"} onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.3)"}>{l}</a>
+              <a key={l} href="#" className="text-xs no-underline transition-colors duration-150" style={{ color: "rgba(255,255,255,0.3)" }}
+                onMouseEnter={e => e.target.style.color = "rgba(255,255,255,0.7)"}
+                onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.3)"}>{l}</a>
             ))}
           </div>
         </div>
@@ -693,18 +943,27 @@ function Footer() {
 }
 
 const HomePage = () => {
-  const { user } = useAuth();
+  const { user, loadingUser } = useAuth();
+  const fetchedRef = useRef(false);
+  const { subs, loading, error, fetchSubs } = useSubStore();
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetchSubs();
+  }, []);
+
   return (
     <>
-      <Navbar />
-      <HeroSection />
+      <Navbar user={user} loadingUser={loadingUser} />
+      <HeroSection user={user} loadingUser={loadingUser} />
       <LogosSection />
       <StatsSection />
       <FeaturesSection />
       <ShowcaseSection />
       <HowSection />
       <TestimonialsSection />
-      <PricingSection />
+      <PricingSection subs={subs} loading={loading} error={error} />
       <CTASection />
       <Footer />
     </>
