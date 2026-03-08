@@ -11,6 +11,7 @@ import RegClinic from "../pages/RegClinic";
 import Dashboard from "../pages/Dashboard";
 import NotAllowed from "../components/errors/NotAllowed";
 import NotAllowedRoute from "./NotAllowedRoute";
+import { useAuth } from "../context/Auth/UseAuth";
 
 // ─── Lazy pages ────────────────────────────────────────────────────────────────
 const Login = lazy(() => import("../components/auth/Login"));
@@ -109,6 +110,8 @@ const PATIENT_ONLY = ["patient"];
 const ALL_ROLES = [...ALL_STAFF, "patient"];
 
 export default function AppRoutes() {
+  const { loadingUser } = useAuth();
+  if (loadingUser) return <AppLoader />;
   return (
     <Suspense fallback={<AppLoader />}>
       <Routes>
