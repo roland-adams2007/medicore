@@ -578,7 +578,7 @@ function PricingSection({ subs, loading, error }) {
   const [permsLoading, setPermsLoading] = useState(false);
   const [permsError, setPermsError] = useState(null);
 
-  const allSubs = (subs || []);
+  const allSubs = (subs.filter(s => s.name !== "Free") || []);
   const tableHeaderSubs = allSubs.filter(s => s.name !== "Free");
 
   useEffect(() => {
@@ -657,7 +657,7 @@ function PricingSection({ subs, loading, error }) {
         ) : (
           <>
             {activeTab === "cards" && (
-              <RevealDiv className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mx-auto">
+              <RevealDiv className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mx-auto">
                 {allSubs.map(sub => {
                   const isFeatured = sub.name === "Pro";
                   const isFree = sub.name === "Free";

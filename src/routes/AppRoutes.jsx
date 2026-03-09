@@ -17,6 +17,7 @@ import { useAuth } from "../context/Auth/UseAuth";
 const Login = lazy(() => import("../components/auth/Login"));
 const Register = lazy(() => import("../components/auth/Register"));
 const VerifyEmail = lazy(() => import("../components/auth/VerifyEmail"));
+const StaffInvite = lazy(() => import("../components/staffs/StaffInvite"));
 
 // Main
 // const Appointments   = lazy(() => import("../pages/Appointments"));
@@ -118,6 +119,7 @@ export default function AppRoutes() {
 
         {/* ── Public ──────────────────────────────────────────────────────── */}
         <Route path="/" element={<HomePage />} />
+        <Route path="/staff/invite/accept" element={<StaffInvite />} />
 
         <Route element={<PublicRoute />}>
           <Route path="/login" element={<Login />} />

@@ -1,8 +1,10 @@
-export default function NavItem({ icon: Icon, label, active, badge, dot, onClick }) {
+import { Link } from "react-router-dom";
+
+export default function NavItem({ icon: Icon, label, active, badge, dot, to }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 text-left border-none cursor-pointer"
+    <Link
+      to={to}
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 text-left no-underline"
       style={{
         borderLeft: `3px solid ${active ? "#4A7C59" : "transparent"}`,
         background: active ? "rgba(74,124,89,0.22)" : "transparent",
@@ -38,6 +40,6 @@ export default function NavItem({ icon: Icon, label, active, badge, dot, onClick
           style={{ background: "#E8927C" }}
         />
       )}
-    </button>
+    </Link>
   );
 }
