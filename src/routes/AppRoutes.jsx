@@ -18,6 +18,7 @@ const Login = lazy(() => import("../components/auth/Login"));
 const Register = lazy(() => import("../components/auth/Register"));
 const VerifyEmail = lazy(() => import("../components/auth/VerifyEmail"));
 const StaffInvite = lazy(() => import("../components/staffs/StaffInvite"));
+const StaffSetUp = lazy(() => import("../components/staffs/StaffSetUp"));
 
 // Main
 // const Appointments   = lazy(() => import("../pages/Appointments"));
@@ -185,6 +186,7 @@ export default function AppRoutes() {
             <Route element={<RoleProtectedRoute allowedRoles={BRANCH_UP} />}>
               {/* <Route path="/dashboard/ward"           element={<Ward />} /> */}
               <Route path="/dashboard/staff" element={<Staff />} />
+              <Route path="/dashboard/staff/set-up/:inviteId" element={<StaffSetUp />} />
               {/* <Route path="/dashboard/shifts"         element={<Shifts />} /> */}
             </Route>
             {/* 
