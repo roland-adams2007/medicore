@@ -1,978 +1,667 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Search, UserPlus, ChevronDown, ChevronUp, ChevronsUpDown,
-  X, Phone, Mail, Hash, Pencil, MessageCircle, CalendarOff,
-  UserX, SearchX, Star, Clock, TrendingUp, CheckSquare, Send, Loader2,
-  MoreVertical, Trash2, Settings, RefreshCw, Users, MailCheck,
-  AlertCircle, CheckCircle2, Timer, XCircle,
+  Users, Mail, Plus, Search, RefreshCw, MoreVertical,
+  Settings, CheckCircle2, XCircle, Loader2, ChevronDown,
+  Eye, Building2,
 } from "lucide-react";
-import { useClinicStore, useRolestore, useStaffStore } from "../store/store";
+import { useStaffStore, useClinicStore } from "../store/store";
+import ImagePreview from "../components/ui/file-manager/ImagePreview";
+import { useAuth } from "../context/Auth/UseAuth";
 
-const FIRST = ["Adaeze", "Bello", "Chioma", "Emeka", "Funke", "Grace", "Ibrahim", "Joy", "Kemi", "Ladi", "Moses", "Ngozi", "Olumide", "Praise", "Rita", "Seun", "Taiwo", "Uche", "Victor", "Yemi", "Zainab", "Aisha", "Biodun", "Chidi", "Damilola"];
-const LAST = ["Obi", "Adeyemi", "Eze", "Nwachukwu", "Fashola", "Lawal", "Musa", "Okonkwo", "Adeleke", "Balogun", "Adesanya", "Nnadi", "Babatunde", "Okafor", "Nwosu", "Abubakar", "Chukwu", "Williams", "Mensah", "Ogbu"];
-const ROLES = ["Doctor", "Nurse", "Receptionist", "Lab Technician", "Pharmacist", "Admin"];
-const DEPTS = ["General Medicine", "Cardiology", "Paediatrics", "Surgery", "Gynaecology", "Emergency", "Pharmacy", "Laboratory", "Administration", "Front Desk"];
-const SPECIALTIES = {
-  Doctor: ["General Practitioner", "Cardiologist", "Paediatrician", "Gynaecologist", "Surgeon", "Internist"],
-  Nurse: ["General Nursing", "ICU", "Paediatric", "Emergency", "Midwifery"],
-  "Lab Technician": ["Haematology", "Microbiology", "Biochemistry", "Pathology"],
-  Pharmacist: ["Clinical Pharmacy", "Dispensing"],
-  Receptionist: ["Front Desk", "Medical Secretary"],
-  Admin: ["HR", "Finance", "Operations", "IT"],
-};
-const AV_COLORS = ["#4A7C59", "#E8927C", "#C9A84C", "#8A9BB0", "#6BA37A", "#2F5C3A", "#6A3D85", "#c97058", "#2563EB", "#15803D"];
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const QUALIFICATIONS = ["MBBS", "FMCP", "FWACS", "FACS", "B.Sc. Nursing", "RN", "HND MLT", "B.Pharm", "MBA (Health Mgmt)", "Diploma Nursing"];
-
-function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
-function rndInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
-function pastDate(d) { const dt = new Date(); dt.setDate(dt.getDate() - d); return dt; }
-function fmtDate(d) {
-  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${m[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-}
-function fmtDateTime(d) {
-  const dt = typeof d === "string" ? new Date(d) : d;
-  if (!dt || isNaN(dt)) return "—";
-  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()}`;
-}
-function initials(n) { return n.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
-function fmtSalary(n) { return "₦" + n.toLocaleString(); }
-
-function generateStaff() {
-  return Array.from({ length: 32 }, (_, i) => {
-    const fn = rnd(FIRST), ln = rnd(LAST);
-    const role = ROLES[i % ROLES.length];
-    const spec = rnd(SPECIALTIES[role] || ["General"]);
-    const sr = Math.random();
-    const status = sr < 0.72 ? "active" : sr < 0.88 ? "leave" : "inactive";
-    const salary = role === "Doctor" ? rndInt(350000, 900000) : role === "Nurse" ? rndInt(120000, 250000) : rndInt(80000, 200000);
-    const offDay = rnd(["Saturday", "Sunday"]);
-    return {
-      id: 3000 + i,
-      name: `${fn} ${ln}`, role, specialty: spec,
-      department: rnd(DEPTS), status,
-      joined: pastDate(rndInt(60, 1200)),
-      salary,
-      patientsToday: role === "Doctor" ? rndInt(4, 18) : role === "Nurse" ? rndInt(8, 24) : 0,
-      phone: `080${rndInt(10000000, 99999999)}`,
-      email: `${fn.toLowerCase()}.${ln.toLowerCase()}@gracehealth.ng`,
-      qualification: rnd(QUALIFICATIONS),
-      color: AV_COLORS[i % AV_COLORS.length],
-      schedule: DAYS.map(d => ({ day: d, off: d === "Sunday" || d === offDay, start: "08:00 AM", end: d === "Saturday" ? "02:00 PM" : "05:00 PM" })),
-      activities: [
-        { text: `Completed ${rndInt(3, 12)} consultations`, time: "Today, 3:00 PM", color: "#4A7C59" },
-        { text: "Updated patient records", time: "Today, 11:20 AM", color: "#8A9BB0" },
-        { text: "Attended staff briefing", time: "Today, 8:00 AM", color: "#C9A84C" },
-        { text: "Submitted daily report", time: "Yesterday, 5:30 PM", color: "#4A7C59" },
-      ].slice(0, rndInt(2, 4)),
-      performance: {
-        attendance: rndInt(88, 100),
-        patientRating: rndInt(80, 100),
-        punctuality: rndInt(85, 100),
-        tasksCompleted: rndInt(75, 100),
-      },
-      yearsExp: rndInt(1, 20),
-      consultationsThisMonth: rndInt(20, 120),
-    };
-  });
-}
-
-const roleBadgeClass = {
-  Doctor: "bg-[#E8F2EB] text-[#2F5C3A]",
-  Nurse: "bg-[#EEF6FF] text-[#2563EB]",
-  Receptionist: "bg-[#FAF0ED] text-[#c05c3c]",
-  Admin: "bg-[#F5F0F8] text-[#6A3D85]",
-  "Lab Technician": "bg-[#FBF6E9] text-[#8b6a1a]",
-  Pharmacist: "bg-[#F0FDF4] text-[#15803D]",
-};
-const statusBadgeClass = {
+const STATUS_COLORS = {
   active: "bg-[#E8F2EB] text-[#2F5C3A]",
-  leave: "bg-[#FBF6E9] text-[#8b6a1a]",
-  inactive: "bg-[#EEF2F7] text-[#4a6580]",
-};
-const inviteStatusConfig = {
-  pending:  { label: "Pending",  cls: "bg-[#FBF6E9] text-[#8b6a1a]",  icon: <Timer size={11} /> },
-  accepted: { label: "Accepted", cls: "bg-[#E8F2EB] text-[#2F5C3A]",  icon: <CheckCircle2 size={11} /> },
-  declined: { label: "Declined", cls: "bg-[#FAF0ED] text-[#c05c3c]",  icon: <XCircle size={11} /> },
-  expired:  { label: "Expired",  cls: "bg-[#EEF2F7] text-[#4a6580]",  icon: <AlertCircle size={11} /> },
+  suspended: "bg-[#FBF6E9] text-[#8b6a1a]",
+  terminated: "bg-[#FAF0ED] text-[#c05c3c]",
+  resigned: "bg-[#EEF2F7] text-[#4a6580]",
 };
 
-function Badge({ text, cls }) {
+const INVITE_STATUS_COLORS = {
+  pending: "bg-[#FBF6E9] text-[#8b6a1a]",
+  accepted: "bg-[#E8F2EB] text-[#2F5C3A]",
+  declined: "bg-[#FAF0ED] text-[#c05c3c]",
+  expired: "bg-[#EEF2F7] text-[#4a6580]",
+};
+
+const inputCls =
+  "w-full px-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:bg-white transition-all placeholder-[#B8C0CC]";
+
+function Avatar({ fname, lname, photoUrl, size = 10, onClick }) {
+  const initials = `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
+  const cls = `w-${size} h-${size} rounded-xl overflow-hidden flex-shrink-0 ${onClick ? "cursor-pointer" : ""}`;
+  if (photoUrl) {
+    return (
+      <div className={cls} onClick={onClick}>
+        <img src={photoUrl} alt={`${fname} ${lname}`} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
   return (
-    <span className={`text-[10px] font-bold px-2 py-[3px] rounded-full whitespace-nowrap ${cls}`}>
-      {text}
-    </span>
+    <div
+      className={`${cls} bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] font-bold text-[${size > 8 ? "14" : "11"}px]`}
+      onClick={onClick}
+    >
+      {initials || <Users size={size > 8 ? 16 : 12} />}
+    </div>
   );
 }
 
-function InviteStatusBadge({ status }) {
-  const cfg = inviteStatusConfig[status] || inviteStatusConfig.pending;
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-[3px] rounded-full whitespace-nowrap ${cfg.cls}`}>
-      {cfg.icon}{cfg.label}
-    </span>
-  );
-}
-
-function InviteRowMenu({ invite, clinicId, onDelete, onResend }) {
+function DropdownMenu({ children, trigger }) {
   const [open, setOpen] = useState(false);
-  const [resending, setResending] = useState(false);
-  const ref = useRef(null);
-  const profileComplete = !!invite.staff_profile_id;
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
-    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function handle(e) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target) &&
+        btnRef.current &&
+        !btnRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    }
     if (open) document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [open]);
 
-  const handleResend = async () => {
-    setOpen(false);
+  const handleOpen = (e) => {
+    e.stopPropagation();
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({
+        top: rect.bottom + window.scrollY + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpen((o) => !o);
+  };
+
+  return (
+    <>
+      <div ref={btnRef}>{trigger(handleOpen, open)}</div>
+      {open && (
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
+          className="bg-white border border-black/[0.09] rounded-xl shadow-[0_8px_32px_rgba(13,17,23,0.18)] min-w-[170px] overflow-hidden"
+          onClick={() => setOpen(false)}
+        >
+          {children}
+        </div>
+      )}
+    </>
+  );
+}
+
+// isYou: true if this member is the currently logged-in user — hide edit actions
+function StaffRowMenu({ member, isYou }) {
+  // If it's the current user's own profile, render nothing (no self-edit)
+  if (isYou) return null;
+
+  return (
+    <DropdownMenu
+      trigger={(handleOpen) => (
+        <button
+          onClick={handleOpen}
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all border-none bg-transparent cursor-pointer"
+        >
+          <MoreVertical size={14} />
+        </button>
+      )}
+    >
+      {member.staff_profile_id && (
+        <Link
+          to={`/dashboard/staff/edit/${member.staff_profile_id}`}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer no-underline"
+        >
+          <Settings size={13} className="text-[#8A9BB0]" />
+          Edit profile
+        </Link>
+      )}
+      {member.staff_profile_id && (
+        <Link
+          to={`/dashboard/staff/view/${member.staff_profile_id}`}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer no-underline"
+        >
+          <Eye size={13} className="text-[#8A9BB0]" />
+          View details
+        </Link>
+      )}
+    </DropdownMenu>
+  );
+}
+
+function InviteRowMenu({ invite, clinicId, branchId, onResend, currentUserEmail }) {
+  const [resending, setResending] = useState(false);
+
+  const handleResend = async (e) => {
+    e.stopPropagation();
     setResending(true);
     await onResend(invite);
     setResending(false);
   };
 
+  const profileDone = !!invite.staff_profile_id;
+  const isOwnInvite = !!(currentUserEmail && invite.email?.toLowerCase() === currentUserEmail);
+
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        disabled={resending}
-        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all border-none bg-transparent cursor-pointer disabled:opacity-50"
-      >
-        {resending ? <Loader2 size={13} className="animate-spin" /> : <MoreVertical size={14} />}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-8 z-50 bg-white border border-black/[0.09] rounded-xl shadow-[0_8px_32px_rgba(13,17,23,0.14)] min-w-[170px] overflow-hidden animate-[menuIn_0.14s_ease]">
-          <style>{`@keyframes menuIn{from{opacity:0;transform:scale(0.96) translateY(-4px)}to{opacity:1;transform:none}}`}</style>
-
-          {invite.status === "pending" && (
-            <button
-              onClick={handleResend}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer bg-transparent border-none text-left"
-            >
-              <RefreshCw size={13} className="text-[#8A9BB0]" />
-              Resend invite
-            </button>
-          )}
-
-          {invite.status === "accepted" && !profileComplete && (
-            <Link
-              to={`/dashboard/staff/set-up/${invite.id}`}
-              onClick={() => setOpen(false)}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#4A7C59] hover:bg-[#E8F2EB] transition-colors cursor-pointer no-underline"
-            >
-              <Settings size={13} />
-              Set up profile
-            </Link>
-          )}
-
-          {invite.status === "accepted" && profileComplete && (
-            <Link
-              to={`/dashboard/staff/set-up/${invite.id}`}
-              onClick={() => setOpen(false)}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#8A9BB0] hover:bg-[#F7F4EF] transition-colors cursor-pointer no-underline"
-            >
-              <Settings size={13} />
-              Edit profile
-            </Link>
-          )}
-
-          <div className="h-px bg-black/[0.06] mx-2" />
-
-          <button
-            onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(invite); }}
-            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#c05c3c] hover:bg-[#FAF0ED] transition-colors cursor-pointer bg-transparent border-none text-left"
-          >
-            <Trash2 size={13} />
-            Delete invite
-          </button>
-        </div>
+    <DropdownMenu
+      trigger={(handleOpen) => (
+        <button
+          onClick={resending ? undefined : handleOpen}
+          disabled={resending}
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all border-none bg-transparent cursor-pointer disabled:opacity-50"
+        >
+          {resending ? <Loader2 size={13} className="animate-spin" /> : <MoreVertical size={14} />}
+        </button>
       )}
-    </div>
-  );
-}
-
-function StaffInvitationsTab({ clinicId, branchId, onInvite }) {
-  const { staffInvites, loading, error, fetchStaffInvitations, resendInvite } = useStaffStore();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [deletingId, setDeletingId] = useState(null);
-  const [resendSuccess, setResendSuccess] = useState(null);
-
-  useEffect(() => {
-    if (clinicId && branchId) fetchStaffInvitations(clinicId, branchId);
-  }, [clinicId, branchId]);
-
-  const filtered = useMemo(() => {
-    if (!Array.isArray(staffInvites)) return [];
-    return staffInvites.filter(inv => {
-      const matchStatus = statusFilter === "all" || inv.status === statusFilter;
-      const q = search.trim().toLowerCase();
-      const matchSearch = !q
-        || inv.email?.toLowerCase().includes(q)
-        || inv.role_name?.toLowerCase().includes(q)
-        || `${inv.invited_by_fname ?? ""} ${inv.invited_by_lname ?? ""}`.toLowerCase().includes(q);
-      return matchStatus && matchSearch;
-    });
-  }, [staffInvites, search, statusFilter]);
-
-  const handleDelete = useCallback((invite) => {
-    if (!window.confirm(`Delete invite for ${invite.email}?`)) return;
-    setDeletingId(invite.id);
-    setTimeout(() => setDeletingId(null), 800);
-  }, []);
-
-  const handleResend = useCallback(async (invite) => {
-    try {
-      await resendInvite(clinicId,branchId, invite.id);
-      setResendSuccess(invite.id);
-      setTimeout(() => setResendSuccess(null), 3000);
-    } catch {
-      // error shown via store
-    }
-  }, [clinicId, branchId,resendInvite]);
-
-  const STATUS_FILTERS = [
-    { label: "All", val: "all" },
-    { label: "Pending", val: "pending" },
-    { label: "Accepted", val: "accepted" },
-    { label: "Declined", val: "declined" },
-    { label: "Expired", val: "expired" },
-  ];
-
-  if (loading && (!staffInvites || staffInvites.length === 0)) {
-    return (
-      <div className="flex-1 flex items-center justify-center py-20">
-        <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
-          <Loader2 size={28} className="animate-spin" />
-          <p className="text-[13px]">Loading invitations…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex-1 flex items-center justify-center py-20">
-        <div className="flex flex-col items-center gap-2 text-[#c05c3c]">
-          <AlertCircle size={28} className="opacity-60" />
-          <p className="text-[13px]">{error}</p>
-          <button onClick={() => fetchStaffInvitations(clinicId, branchId)}
-            className="mt-1 text-[12px] font-semibold text-[#4A7C59] hover:underline bg-transparent border-none cursor-pointer">
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      {resendSuccess && (
-        <div className="mx-4 mt-3 flex items-center gap-2 px-3.5 py-2.5 bg-[#E8F2EB] border border-[#4A7C59]/20 rounded-xl text-[12px] font-medium text-[#2F5C3A] animate-[fadeIn_0.2s_ease]">
-          <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}`}</style>
-          <CheckCircle2 size={14} />
-          Invitation resent successfully.
-        </div>
+    >
+      {(invite.status === "pending" || invite.status === "expired") && (
+        <button
+          onClick={handleResend}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer bg-transparent border-none text-left"
+        >
+          <RefreshCw size={13} className="text-[#8A9BB0]" />
+          Resend invite
+        </button>
       )}
 
-      <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-black/[0.09] bg-white flex-shrink-0 mt-0">
-        <div className="relative w-48">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
-          <input type="text" placeholder="Search invites…" value={search} onChange={e => setSearch(e.target.value)}
-            className="w-full pl-7 pr-2.5 py-1.5 text-[12px] font-sans bg-[#F7F4EF] border border-black/[0.09] rounded-lg outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all" />
-        </div>
+      {/* Only show setup/edit options for other people's invites */}
+      {!isOwnInvite && invite.status === "accepted" && !profileDone && (
+        <Link
+          to={`/dashboard/staff/set-up/${invite.id}`}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#4A7C59] hover:bg-[#E8F2EB] transition-colors cursor-pointer no-underline"
+        >
+          <Settings size={13} />
+          Set up profile
+        </Link>
+      )}
 
-        <div className="flex gap-1 flex-shrink-0">
-          {STATUS_FILTERS.map(f => (
-            <button key={f.val} onClick={() => setStatusFilter(f.val)}
-              className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-sans
-                ${statusFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="ml-auto">
-          <button onClick={onInvite}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-lg hover:bg-[#2F5C3A] hover:shadow-[0_4px_14px_rgba(47,92,58,0.25)] transition-all border-none cursor-pointer font-sans">
-            <UserPlus size={13} />Invite Staff
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
-          <div className="text-center py-16 px-6 text-[#8A9BB0]">
-            <MailCheck size={40} className="mx-auto opacity-25 mb-3" />
-            <p className="text-[14px] font-medium text-[#0D1117]">No invitations found</p>
-            <p className="text-[12px] mt-1">
-              {statusFilter !== "all" ? "Try a different filter or " : ""}invite your first staff member to get started.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="grid px-4 py-2 border-b border-black/[0.05] bg-[#F7F4EF]/60"
-              style={{ gridTemplateColumns: "1fr 130px 160px 100px 110px 100px" }}>
-              {["Email", "Role", "Invited by", "Date", "Status", ""].map((h, i) => (
-                <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0]">{h}</span>
-              ))}
-            </div>
-
-            {filtered.map((inv) => {
-              const profileComplete = !!inv.staff_profile_id;
-              return (
-                <div key={inv.id}
-                  className={`grid items-center px-4 py-3 border-b border-black/[0.05] transition-all
-                    ${deletingId === inv.id ? "opacity-40 pointer-events-none" : "hover:bg-[rgba(247,244,239,0.7)]"}`}
-                  style={{ gridTemplateColumns: "1fr 130px 160px 100px 110px 100px" }}
-                >
-                  <div className="min-w-0 pr-3">
-                    <p className="text-[13px] font-semibold text-[#0D1117] truncate">{inv.email}</p>
-                    {inv.status === "accepted" && profileComplete && (
-                      <p className="text-[11px] text-[#4A7C59] mt-0.5 flex items-center gap-1">
-                        <CheckCircle2 size={10} />Profile set up
-                      </p>
-                    )}
-                    {inv.status === "accepted" && !profileComplete && inv.accepted_at && (
-                      <p className="text-[11px] text-[#C9A84C] mt-0.5">Accepted · setup pending</p>
-                    )}
-                    {inv.status === "expired" && (
-                      <p className="text-[11px] text-[#8A9BB0] mt-0.5">Expired {fmtDateTime(inv.expires_at)}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <span className={`text-[11px] font-semibold px-2 py-[3px] rounded-full ${roleBadgeClass[inv.role_name] || "bg-[#E8F2EB] text-[#2F5C3A]"}`}>
-                      {inv.role_name || "—"}
-                    </span>
-                  </div>
-
-                  <p className="text-[12px] text-[#8A9BB0] truncate pr-2">
-                    {inv.invited_by_fname ? `${inv.invited_by_fname} ${inv.invited_by_lname || ""}`.trim() : "—"}
-                  </p>
-
-                  <p className="text-[12px] text-[#8A9BB0]">{fmtDateTime(inv.created_at)}</p>
-
-                  <InviteStatusBadge status={inv.status} />
-
-                  <div className="flex items-center justify-end gap-1.5">
-                    {inv.status === "accepted" && !profileComplete && (
-                      <Link
-                        to={`/dashboard/staff/set-up/${inv.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1 bg-[#E8F2EB] text-[#2F5C3A] text-[10px] font-bold rounded-lg hover:bg-[#4A7C59] hover:text-white transition-all no-underline whitespace-nowrap"
-                      >
-                        <Settings size={10} />Setup
-                      </Link>
-                    )}
-                    {inv.status === "accepted" && profileComplete && (
-                      <span className="flex items-center gap-1 px-2 py-1 bg-[#F7F4EF] text-[#8A9BB0] text-[10px] font-bold rounded-lg whitespace-nowrap">
-                        <CheckCircle2 size={10} className="text-[#4A7C59]" />Done
-                      </span>
-                    )}
-                    <InviteRowMenu
-                      invite={inv}
-                      clinicId={clinicId}
-                      onDelete={handleDelete}
-                      onResend={handleResend}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-      </div>
-    </div>
+      {!isOwnInvite && profileDone && (
+        <Link
+          to={`/dashboard/staff/edit/${invite.staff_profile_id}`}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer no-underline"
+        >
+          <Settings size={13} className="text-[#8A9BB0]" />
+          Edit profile
+        </Link>
+      )}
+    </DropdownMenu>
   );
 }
 
-function InviteStaffModal({ onClose, clinicId, branchId }) {
-  const { inviteStaff } = useStaffStore();
-  const { roles, loading: loadingRoles, fetchRoles } = useRolestore();
-  const [email, setEmail] = useState("");
-  const [roleId, setRoleId] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => { fetchRoles(); }, []);
-
-  const filteredRoles = useMemo(() => {
-    if (!Array.isArray(roles)) return [];
-    return roles.filter(r => r.name?.toLowerCase() !== "super admin");
-  }, [roles]);
-
-  useEffect(() => {
-    if (filteredRoles.length > 0 && !roleId) setRoleId(String(filteredRoles[0].id));
-  }, [filteredRoles]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email.trim() || !roleId) return;
-    setError(null);
-    setSubmitting(true);
-    try {
-      await inviteStaff(clinicId, { email: email.trim(), branch_id: branchId, role_id: parseInt(roleId, 10) });
-      setSuccess(true);
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "Failed to send invite.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const inputCls = "w-full px-3 py-2.5 text-[14px] font-sans bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:shadow-[0_0_0_3px_rgba(74,124,89,0.1)] focus:bg-white transition-all appearance-none disabled:opacity-50";
-
+function EmptyState({ icon: Icon, title, desc, action }) {
   return (
-    <div className="fixed inset-0 bg-[#0D1117]/50 backdrop-blur-sm z-[200] flex items-center justify-center p-5"
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl w-full max-w-[420px] shadow-[0_24px_80px_rgba(13,17,23,0.25)] animate-[modalIn_0.22s_ease]">
-        <style>{`@keyframes modalIn{from{opacity:0;transform:scale(0.95) translateY(8px)}to{opacity:1;transform:none}}`}</style>
-        <div className="p-5 pb-0 flex items-center justify-between">
-          <div>
-            <h2 className="font-['DM_Serif_Display'] text-[21px] text-[#0D1117]">Invite Staff</h2>
-            <p className="text-[12px] text-[#8A9BB0] mt-0.5">Send an invite link via email</p>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 bg-[#F7F4EF] rounded-lg flex items-center justify-center text-[#8A9BB0] hover:bg-[#FAF0ED] hover:text-[#E8927C] transition-all border-none cursor-pointer">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5 pt-4">
-          {success ? (
-            <div className="py-8 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[#E8F2EB] flex items-center justify-center mx-auto mb-4">
-                <Send size={22} className="text-[#4A7C59]" />
-              </div>
-              <p className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] mb-1">Invite sent!</p>
-              <p className="text-[13px] text-[#8A9BB0] mb-5">
-                An invitation has been sent to <span className="font-semibold text-[#0D1117]">{email}</span>
-              </p>
-              <div className="flex gap-2.5">
-                <button onClick={() => { setSuccess(false); setEmail(""); setRoleId(filteredRoles[0]?.id ? String(filteredRoles[0].id) : ""); }}
-                  className="flex-1 py-2.5 bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl text-[13px] font-semibold text-[#0D1117] cursor-pointer hover:bg-[#EEF2F7] transition-all font-sans">
-                  Invite another
-                </button>
-                <button onClick={onClose} className="flex-1 py-2.5 bg-[#4A7C59] rounded-xl text-[13px] font-semibold text-white cursor-pointer hover:bg-[#2F5C3A] transition-all font-sans border-none">
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              <div className="mb-3.5">
-                <label className="block text-[11px] font-bold uppercase tracking-[0.06em] text-[#0D1117] mb-1.5">Email address</label>
-                <input type="email" className={inputCls} placeholder="staff@gracehealth.ng" value={email} onChange={e => setEmail(e.target.value)} required disabled={submitting} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-[11px] font-bold uppercase tracking-[0.06em] text-[#0D1117] mb-1.5">Role</label>
-                {loadingRoles ? (
-                  <div className="flex items-center gap-2 px-3 py-2.5 bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl text-[13px] text-[#8A9BB0]">
-                    <Loader2 size={14} className="animate-spin" />Loading roles…
-                  </div>
-                ) : filteredRoles.length === 0 ? (
-                  <div className="px-3 py-2.5 bg-[#FBF6E9] border-[1.5px] border-[#C9A84C]/30 rounded-xl text-[13px] text-[#8b6a1a]">No roles available</div>
-                ) : (
-                  <select className={inputCls} value={roleId} onChange={e => setRoleId(e.target.value)} required disabled={submitting}>
-                    {filteredRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                )}
-              </div>
-              {error && (
-                <div className="mb-3.5 px-3 py-2.5 bg-[#FAF0ED] border-[1.5px] border-[#E8927C]/40 rounded-xl text-[13px] text-[#c05c3c]">{error}</div>
-              )}
-              <div className="flex gap-2.5">
-                <button type="button" onClick={onClose} disabled={submitting}
-                  className="flex-1 py-2.5 bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl text-[13px] font-semibold text-[#8A9BB0] cursor-pointer hover:bg-[#EEF2F7] transition-all font-sans disabled:opacity-50">
-                  Cancel
-                </button>
-                <button type="submit" disabled={submitting || loadingRoles || filteredRoles.length === 0}
-                  className="flex-[2] py-2.5 bg-[#4A7C59] rounded-xl text-[13px] font-semibold text-white cursor-pointer hover:bg-[#2F5C3A] transition-all font-sans border-none flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
-                  {submitting ? <><Loader2 size={14} className="animate-spin" />Sending…</> : <><Send size={14} />Send invite</>}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-[#F7F4EF] flex items-center justify-center mb-4">
+        <Icon size={22} className="text-[#B8C0CC]" />
       </div>
-    </div>
-  );
-}
-
-function StaffDetailPanel({ staff: s, onClose, onEdit, onToggleLeave, onToggleActive }) {
-  const [activeTab, setActiveTab] = useState("overview");
-  useEffect(() => { setActiveTab("overview"); }, [s.id]);
-
-  const perfMetrics = [
-    { label: "Attendance", val: s.performance.attendance, color: "#4A7C59", icon: <CheckSquare size={13} /> },
-    { label: "Patient Rating", val: s.performance.patientRating, color: "#E8927C", icon: <Star size={13} /> },
-    { label: "Punctuality", val: s.performance.punctuality, color: "#C9A84C", icon: <Clock size={13} /> },
-    { label: "Tasks Completed", val: s.performance.tasksCompleted, color: "#8A9BB0", icon: <TrendingUp size={13} /> },
-  ];
-  const tabs = [{ id: "overview", label: "Overview" }, { id: "schedule", label: "Schedule" }, { id: "perf", label: "Performance" }];
-
-  return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="flex border-b border-black/[0.09] flex-shrink-0">
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-all cursor-pointer font-sans
-              ${activeTab === t.id ? "text-[#4A7C59] border-[#4A7C59]" : "text-[#8A9BB0] border-transparent hover:text-[#0D1117] hover:bg-[#F7F4EF]"}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === "overview" && (
-          <>
-            <div className="p-4 border-b border-black/[0.09]">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-14 h-14 rounded-xl flex items-center justify-center text-white text-lg font-bold flex-shrink-0" style={{ background: s.color }}>
-                  {initials(s.name)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-['DM_Serif_Display'] text-lg text-[#0D1117] leading-tight">{s.name}</p>
-                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                    <Badge text={s.role} cls={roleBadgeClass[s.role] || "bg-[#E8F2EB] text-[#2F5C3A]"} />
-                    <Badge text={s.status} cls={statusBadgeClass[s.status]} />
-                  </div>
-                </div>
-                <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-lg text-[#8A9BB0] hover:bg-[#FAF0ED] hover:text-[#E8927C] transition-all flex-shrink-0 border-none cursor-pointer">
-                  <X size={15} />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                {[
-                  { label: "Specialty", val: s.specialty },
-                  { label: "Department", val: s.department },
-                  { label: "Experience", val: `${s.yearsExp} years` },
-                  { label: "Qualification", val: s.qualification },
-                  { label: "Joined", val: fmtDate(s.joined) },
-                  { label: "Monthly Salary", val: fmtSalary(s.salary), highlight: true },
-                ].map(({ label, val, highlight }) => (
-                  <div key={label} className="p-2.5 bg-[#F7F4EF] rounded-xl border border-black/[0.07]">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[#8A9BB0] mb-0.5">{label}</p>
-                    <p className={`text-[13px] font-semibold ${highlight ? "text-[#4A7C59]" : "text-[#0D1117]"}`}>{val}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-col gap-1.5 mb-3">
-                {[{ icon: <Phone size={14} />, val: s.phone }, { icon: <Mail size={14} />, val: s.email }, { icon: <Hash size={14} />, val: `Staff ID: S-${s.id}` }].map(({ icon, val }) => (
-                  <div key={val} className="flex items-center gap-2 text-[13px] text-[#8A9BB0]">
-                    <span className="flex-shrink-0">{icon}</span>{val}
-                  </div>
-                ))}
-              </div>
-              {(s.role === "Doctor" || s.role === "Nurse") && (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-3 bg-[#E8F2EB] rounded-xl text-center">
-                    <p className="font-['DM_Serif_Display'] text-2xl text-[#4A7C59]">{s.patientsToday}</p>
-                    <p className="text-[11px] text-[#2F5C3A] mt-0.5">Patients today</p>
-                  </div>
-                  <div className="p-3 bg-[#FBF6E9] rounded-xl text-center">
-                    <p className="font-['DM_Serif_Display'] text-2xl text-[#C9A84C]">{s.consultationsThisMonth}</p>
-                    <p className="text-[11px] text-[#8b6a1a] mt-0.5">This month</p>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A9BB0] mb-3">Actions</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: "Edit Profile", icon: <Pencil size={18} />, iconColor: "#4A7C59", onClick: onEdit },
-                  { label: "Message", icon: <MessageCircle size={18} />, iconColor: "#E8927C", onClick: () => {} },
-                  { label: s.status === "leave" ? "End Leave" : "Mark Leave", icon: <CalendarOff size={18} />, iconColor: "#C9A84C", onClick: onToggleLeave },
-                  { label: s.status === "inactive" ? "Reactivate" : "Deactivate", icon: <UserX size={18} />, iconColor: "#8A9BB0", onClick: onToggleActive },
-                ].map(({ label, icon, iconColor, onClick }) => (
-                  <button key={label} onClick={onClick} className="flex flex-col items-center gap-1.5 p-3 bg-[#F7F4EF] border border-black/[0.09] rounded-xl cursor-pointer text-[11px] font-semibold text-[#8A9BB0] hover:border-[#4A7C59] hover:bg-[#E8F2EB] hover:text-[#2F5C3A] transition-all font-sans group">
-                    <span style={{ color: iconColor }} className="group-hover:!text-[#4A7C59] transition-colors">{icon}</span>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === "schedule" && (
-          <div className="p-4">
-            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A9BB0] mb-3">Weekly Schedule</p>
-            <div className="flex flex-col">
-              {s.schedule.map((d, i) => (
-                <div key={d.day} className={`flex items-center justify-between py-2.5 ${i < s.schedule.length - 1 ? "border-b border-black/[0.05]" : ""}`}>
-                  <span className="text-[12px] font-semibold text-[#0D1117] w-20">{d.day.slice(0, 3)}</span>
-                  {d.off ? <span className="text-[12px] text-[#E8927C]">Day off</span> : <span className="text-[12px] text-[#8A9BB0]">{d.start} – {d.end}</span>}
-                  <Badge text={d.off ? "Off" : "On duty"} cls={d.off ? statusBadgeClass.inactive : statusBadgeClass.active} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "perf" && (
-          <>
-            <div className="p-4 border-b border-black/[0.09]">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A9BB0] mb-3">Performance Metrics</p>
-              <div className="flex flex-col gap-3">
-                {perfMetrics.map(({ label, val, color, icon }) => (
-                  <div key={label}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <div className="flex items-center gap-1.5 text-[12px] font-medium text-[#0D1117]"><span style={{ color }}>{icon}</span>{label}</div>
-                      <span className="text-[12px] font-bold" style={{ color }}>{val}%</span>
-                    </div>
-                    <div className="h-1.5 bg-black/[0.07] rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${val}%`, background: color }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8A9BB0] mb-3">Recent Activity</p>
-              <div className="flex flex-col gap-3">
-                {s.activities.map((a, i) => (
-                  <div key={i} className="flex gap-2.5">
-                    <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: a.color }} />
-                    <div>
-                      <p className="text-[13px] text-[#0D1117] leading-snug">{a.text}</p>
-                      <p className="text-[11px] text-[#8A9BB0] mt-0.5">{a.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StaffModal({ editStaff, onClose, onSave }) {
-  const isEdit = !!editStaff;
-  const [form, setForm] = useState({
-    fn: isEdit ? editStaff.name.split(" ")[0] : "",
-    ln: isEdit ? editStaff.name.split(" ").slice(1).join(" ") : "",
-    role: isEdit ? editStaff.role : ROLES[0],
-    spec: isEdit ? editStaff.specialty : "",
-    dept: isEdit ? editStaff.department : DEPTS[0],
-    qual: isEdit ? editStaff.qualification : "",
-    phone: isEdit ? editStaff.phone : "",
-    email: isEdit ? editStaff.email : "",
-    exp: isEdit ? String(editStaff.yearsExp) : "",
-    salary: isEdit ? String(editStaff.salary) : "",
-    status: isEdit ? editStaff.status : "active",
-  });
-  const specs = SPECIALTIES[form.role] || ["General"];
-  const set = (key) => (e) => {
-    const nf = { ...form, [key]: e.target.value };
-    if (key === "role") nf.spec = (SPECIALTIES[e.target.value] || ["General"])[0];
-    setForm(nf);
-  };
-  const handleSave = () => {
-    if (!form.fn || !form.ln || !form.phone) { alert("Please fill in first name, last name, and phone."); return; }
-    onSave(form, editStaff?.id);
-  };
-  const Field = ({ label, children }) => (
-    <div className="mb-3.5">
-      <label className="block text-[11px] font-bold uppercase tracking-[0.06em] text-[#0D1117] mb-1.5">{label}</label>
-      {children}
-    </div>
-  );
-  const inputCls = "w-full px-3 py-2.5 text-[14px] font-sans bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:shadow-[0_0_0_3px_rgba(74,124,89,0.1)] focus:bg-white transition-all appearance-none";
-
-  return (
-    <div className="fixed inset-0 bg-[#0D1117]/50 backdrop-blur-sm z-[200] flex items-center justify-center p-5" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl w-full max-w-[520px] max-h-[90vh] overflow-y-auto shadow-[0_24px_80px_rgba(13,17,23,0.25)] animate-[modalIn_0.22s_ease]">
-        <style>{`@keyframes modalIn{from{opacity:0;transform:scale(0.95) translateY(8px)}to{opacity:1;transform:none}}`}</style>
-        <div className="p-5 pb-0 flex items-center justify-between">
-          <h2 className="font-['DM_Serif_Display'] text-[21px] text-[#0D1117]">{isEdit ? "Edit Staff Member" : "Add Staff Member"}</h2>
-          <button onClick={onClose} className="w-8 h-8 bg-[#F7F4EF] rounded-lg flex items-center justify-center text-[#8A9BB0] hover:bg-[#FAF0ED] hover:text-[#E8927C] transition-all border-none cursor-pointer"><X size={16} /></button>
-        </div>
-        <div className="p-5 pt-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="First Name"><input className={inputCls} placeholder="Adaeze" value={form.fn} onChange={set("fn")} /></Field>
-            <Field label="Last Name"><input className={inputCls} placeholder="Obi" value={form.ln} onChange={set("ln")} /></Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Role"><select className={inputCls} value={form.role} onChange={set("role")}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></Field>
-            <Field label="Specialty"><select className={inputCls} value={form.spec} onChange={set("spec")}>{specs.map(sp => <option key={sp}>{sp}</option>)}</select></Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Department"><select className={inputCls} value={form.dept} onChange={set("dept")}>{DEPTS.map(d => <option key={d}>{d}</option>)}</select></Field>
-            <Field label="Qualification"><input className={inputCls} placeholder="e.g. MBBS" value={form.qual} onChange={set("qual")} /></Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Phone"><input className={inputCls} placeholder="08012345678" value={form.phone} onChange={set("phone")} /></Field>
-            <Field label="Years Experience"><input className={inputCls} type="number" placeholder="5" min="0" max="50" value={form.exp} onChange={set("exp")} /></Field>
-          </div>
-          <Field label="Email"><input className={inputCls} type="email" placeholder="staff@gracehealth.ng" value={form.email} onChange={set("email")} /></Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Monthly Salary (₦)"><input className={inputCls} type="number" placeholder="250000" value={form.salary} onChange={set("salary")} /></Field>
-            <Field label="Status"><select className={inputCls} value={form.status} onChange={set("status")}>{["active", "leave", "inactive"].map(s => <option key={s}>{s}</option>)}</select></Field>
-          </div>
-          <div className="flex gap-2.5 mt-4">
-            <button onClick={onClose} className="flex-1 py-2.5 bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl text-[13px] font-semibold text-[#8A9BB0] cursor-pointer hover:bg-[#EEF2F7] transition-all font-sans">Cancel</button>
-            <button onClick={handleSave} className="flex-[2] py-2.5 bg-[#4A7C59] rounded-xl text-[13px] font-semibold text-white cursor-pointer hover:bg-[#2F5C3A] transition-all font-sans border-none">{isEdit ? "Save changes" : "Add staff member"}</button>
-          </div>
-        </div>
-      </div>
+      <p className="text-[14px] font-semibold text-[#0D1117] font-['DM_Sans'] mb-1">{title}</p>
+      <p className="text-[12px] text-[#8A9BB0] font-['DM_Sans'] mb-4 max-w-xs">{desc}</p>
+      {action}
     </div>
   );
 }
 
 export default function Staff() {
-  const { selectedClinic } = useClinicStore();
-  const { fetchStaff, staff, loading: staffLoading } = useStaffStore();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") || "staff";
-  const setTab = (tab) => setSearchParams(tab === "staff" ? {} : { tab });
+  const tab = searchParams.get("tab") || "staff";
+  const { selectedClinic } = useClinicStore();
+  const { user } = useAuth();
+  const { staff, staffInvites, loading, pagination, fetchClinicStaff, fetchStaffInvitations, resendInvite } =
+    useStaffStore();
 
-  useEffect(() => {
-    if (selectedClinic?.id && selectedClinic?.branchId) {
-      fetchStaff(selectedClinic.id, selectedClinic.branchId);
-    }
-  }, [selectedClinic?.id, selectedClinic?.branchId]);
-
-  const [staffList, setStaffList] = useState(() => generateStaff());
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [sortKey, setSortKey] = useState("name");
-  const [sortDir, setSortDir] = useState(1);
-  const [selectedId, setSelectedId] = useState(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [editId, setEditId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [toast, setToast] = useState(null);
 
-  const selectedStaff = useMemo(() => staffList.find(s => s.id === selectedId), [staffList, selectedId]);
+  const clinicId = selectedClinic?.id;
+  const branchId = selectedClinic?.branchId;
+  const currentUserId = user?.id;
+  const currentUserEmail = user?.email?.toLowerCase() ?? null;
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let list = staffList.filter(s => {
-      const matchFilter = activeFilter === "all" || s.role === activeFilter;
-      const matchQ = !q || s.name.toLowerCase().includes(q) || s.role.toLowerCase().includes(q) || s.department.toLowerCase().includes(q) || s.specialty.toLowerCase().includes(q);
-      return matchFilter && matchQ;
-    });
-    list.sort((a, b) => {
-      let va = a[sortKey], vb = b[sortKey];
-      if (typeof va === "string") { va = va.toLowerCase(); vb = vb.toLowerCase(); }
-      return va < vb ? -sortDir : va > vb ? sortDir : 0;
-    });
-    return list;
-  }, [staffList, search, activeFilter, sortKey, sortDir]);
-
-  const stats = useMemo(() => ({
-    total: staffList.length,
-    doctors: staffList.filter(s => s.role === "Doctor").length,
-    nurses: staffList.filter(s => s.role === "Nurse").length,
-    onLeave: staffList.filter(s => s.status === "leave").length,
-  }), [staffList]);
-
-  const handleSort = (key) => {
-    if (sortKey === key) setSortDir(d => d * -1);
-    else { setSortKey(key); setSortDir(1); }
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const SortIcon = ({ k }) => sortKey === k
-    ? (sortDir === 1 ? <ChevronDown size={12} className="text-[#4A7C59]" /> : <ChevronUp size={12} className="text-[#4A7C59]" />)
-    : <ChevronsUpDown size={12} className="opacity-40" />;
+  const loadStaff = useCallback(
+    async (page = 1) => {
+      if (!clinicId) return;
+      try {
+        await fetchClinicStaff(clinicId, { search, status: statusFilter || null, page });
+      } catch { }
+    },
+    [clinicId, branchId, search, statusFilter]
+  );
 
-  const handleSelectStaff = useCallback((id) => setSelectedId(id), []);
-  const closeDetail = useCallback(() => setSelectedId(null), []);
-  const openEdit = useCallback(() => { setEditId(selectedId); setShowEditModal(true); }, [selectedId]);
+  const loadInvites = useCallback(
+    async (page = 1) => {
+      if (!clinicId || !branchId) return;
+      try {
+        await fetchStaffInvitations(clinicId, branchId, { search, page });
+      } catch { }
+    },
+    [clinicId, branchId, search]
+  );
 
-  const handleToggleLeave = useCallback(() => {
-    setStaffList(prev => prev.map(s => s.id === selectedId ? { ...s, status: s.status === "leave" ? "active" : "leave" } : s));
-    setSelectedId(null);
-  }, [selectedId]);
+  useEffect(() => {
+    if (tab === "staff") loadStaff(1);
+    else loadInvites(1);
+  }, [tab, search, statusFilter]);
 
-  const handleToggleActive = useCallback(() => {
-    const s = staffList.find(x => x.id === selectedId);
-    if (!s) return;
-    const action = s.status === "inactive" ? "reactivate" : "deactivate";
-    if (window.confirm(`Are you sure you want to ${action} ${s.name}?`)) {
-      setStaffList(prev => prev.map(x => x.id === selectedId ? { ...x, status: x.status === "inactive" ? "active" : "inactive" } : x));
-      setSelectedId(null);
+  const handleResend = async (invite) => {
+    try {
+      await resendInvite(clinicId, branchId, invite.id);
+      showToast("Invitation resent successfully.");
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed to resend invite.", "error");
     }
-  }, [selectedId, staffList]);
+  };
 
-  const handleSave = useCallback((form, id) => {
-    if (id) {
-      setStaffList(prev => prev.map(s => s.id === id ? {
-        ...s, name: `${form.fn} ${form.ln}`, role: form.role, specialty: form.spec,
-        department: form.dept, qualification: form.qual, phone: form.phone,
-        email: form.email, yearsExp: parseInt(form.exp) || 0, salary: parseInt(form.salary) || 0, status: form.status,
-      } : s));
-    } else {
-      setStaffList(prev => [...prev, {
-        id: Date.now() % 100000, name: `${form.fn} ${form.ln}`, role: form.role, specialty: form.spec,
-        department: form.dept, qualification: form.qual, phone: form.phone, email: form.email,
-        yearsExp: parseInt(form.exp) || 0, salary: parseInt(form.salary) || 0, status: form.status,
-        joined: new Date(), color: rnd(AV_COLORS), patientsToday: 0, consultationsThisMonth: 0,
-        schedule: DAYS.map(d => ({ day: d, off: d === "Sunday", start: "08:00 AM", end: "05:00 PM" })),
-        activities: [],
-        performance: { attendance: 100, patientRating: 100, punctuality: 100, tasksCompleted: 100 },
-      }]);
-    }
-    setShowEditModal(false);
-    setEditId(null);
-  }, []);
-
-  const FILTERS = [
-    { label: "All", val: "all" },
-    { label: "Doctors", val: "Doctor" },
-    { label: "Nurses", val: "Nurse" },
-    { label: "Admin", val: "Admin" },
-  ];
-
-  const STAT_ITEMS = [
-    { val: stats.total, lbl: "Total staff" },
-    { val: stats.doctors, lbl: "Doctors", highlight: true },
-    { val: stats.nurses, lbl: "Nurses" },
-    { val: stats.onLeave, lbl: "On leave" },
-  ];
-
-  const PAGE_TABS = [
-    { id: "staff", label: "Staff", icon: <Users size={13} /> },
-    { id: "staff_invites", label: "Invitations", icon: <MailCheck size={13} /> },
-  ];
+  const setTab = (t) => {
+    setSearch("");
+    setStatusFilter("");
+    setSearchParams({ tab: t });
+  };
 
   return (
-    <div className="h-screen overflow-hidden font-['DM_Sans'] bg-[#F7F4EF] text-[#0D1117] flex flex-col">
-      <div className="flex items-center gap-1 px-4 pt-3 pb-0 bg-white border-b border-black/[0.09] flex-shrink-0">
-        {PAGE_TABS.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setSelectedId(null); }}
-            className={`flex items-center gap-1.5 px-3.5 py-2.5 text-[12px] font-semibold border-b-2 transition-all cursor-pointer font-sans bg-transparent
-              ${activeTab === t.id ? "text-[#4A7C59] border-[#4A7C59]" : "text-[#8A9BB0] border-transparent hover:text-[#0D1117]"}`}>
-            {t.icon}{t.label}
-          </button>
-        ))}
-      </div>
+    <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
+      {toast && (
+        <div
+          className={`fixed top-5 right-5 z-[100] flex items-center gap-2.5 px-4 py-3 rounded-xl text-[13px] font-medium shadow-lg transition-all animate-[slideIn_0.2s_ease] ${toast.type === "error"
+              ? "bg-[#FAF0ED] text-[#c05c3c] border border-[#E8927C]/30"
+              : "bg-[#E8F2EB] text-[#2F5C3A] border border-[#4A7C59]/20"
+            }`}
+        >
+          <style>{`@keyframes slideIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}`}</style>
+          {toast.type === "error" ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
+          {toast.msg}
+        </div>
+      )}
 
-      <div className="flex-1 flex overflow-hidden">
-        {activeTab === "staff" && (
-          <div className={`flex flex-col overflow-hidden border-r border-black/[0.09] transition-all ${selectedId ? "flex-1 min-w-0" : "flex-1"}`}>
-            <div className="flex gap-px bg-black/[0.09] border-b border-black/[0.09] flex-shrink-0">
-              {STAT_ITEMS.map(({ val, lbl, highlight }) => (
-                <div key={lbl} className="flex-1 bg-white py-3.5 px-4 text-center hover:bg-[#E8F2EB] transition-colors cursor-default">
-                  <p className={`font-['DM_Serif_Display'] text-2xl leading-none ${highlight ? "text-[#4A7C59]" : "text-[#0D1117]"}`}>{val}</p>
-                  <p className="text-[11px] text-[#8A9BB0] mt-0.5">{lbl}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-black/[0.09] bg-white flex-shrink-0">
-              <div className="relative w-48">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
-                <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-7 pr-2.5 py-1.5 text-[12px] font-sans bg-[#F7F4EF] border border-black/[0.09] rounded-lg outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all" />
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                {FILTERS.map(f => (
-                  <button key={f.val} onClick={() => setActiveFilter(f.val)}
-                    className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-sans
-                      ${activeFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              <div className="ml-auto flex items-center gap-4">
-                <button onClick={() => handleSort("role")} className={`hidden md:flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.06em] cursor-pointer bg-transparent border-none p-0 font-sans ${sortKey === "role" ? "text-[#4A7C59]" : "text-[#8A9BB0] hover:text-[#0D1117]"} transition-colors`}>
-                  Role <SortIcon k="role" />
-                </button>
-                <button onClick={() => handleSort("department")} className={`hidden sm:flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.06em] cursor-pointer bg-transparent border-none p-0 font-sans ${sortKey === "department" ? "text-[#4A7C59]" : "text-[#8A9BB0] hover:text-[#0D1117]"} transition-colors`}>
-                  Dept <SortIcon k="department" />
-                </button>
-                <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#8A9BB0] w-[70px] text-right">Status</span>
-                <button onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-lg hover:bg-[#2F5C3A] hover:shadow-[0_4px_14px_rgba(47,92,58,0.25)] transition-all border-none cursor-pointer font-sans">
-                  <UserPlus size={13} />Invite Staff
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {filtered.length === 0 ? (
-                <div className="text-center py-16 px-6 text-[#8A9BB0]">
-                  <SearchX size={40} className="mx-auto opacity-30 mb-2" />
-                  <p className="text-[14px]">No staff found matching your search.</p>
-                </div>
-              ) : (
-                filtered.map((s, i) => (
-                  <div key={s.id} onClick={() => handleSelectStaff(s.id)}
-                    className={`grid gap-2 px-4 py-3 border-b border-black/[0.05] cursor-pointer transition-colors items-center
-                      ${s.id === selectedId ? "bg-[#E8F2EB]" : "hover:bg-[rgba(247,244,239,0.8)]"}`}
-                    style={{ gridTemplateColumns: "36px 1fr 110px 90px 70px", animationDelay: `${i * 0.018}s` }}
-                  >
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0" style={{ background: s.color }}>
-                      {initials(s.name)}
-                    </div>
-                    <div>
-                      <p className="text-[14px] font-semibold text-[#0D1117] leading-tight">{s.name}</p>
-                      <p className="text-[11px] text-[#8A9BB0] mt-0.5">S-{s.id} · {s.specialty} · {s.yearsExp}yr exp</p>
-                    </div>
-                    <div className="hidden md:block">
-                      <Badge text={s.role} cls={roleBadgeClass[s.role] || "bg-[#E8F2EB] text-[#2F5C3A]"} />
-                    </div>
-                    <p className="hidden sm:block text-[12px] text-[#8A9BB0]">{s.department.split(" ")[0]}</p>
-                    <div className="flex justify-end">
-                      <Badge text={s.status} cls={statusBadgeClass[s.status]} />
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+      <div className="px-6 py-6 max-w-[1100px] mx-auto">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="font-['DM_Serif_Display'] text-[26px] text-[#0D1117] leading-tight">Staff</h1>
+            <p className="text-[13px] text-[#8A9BB0] mt-0.5">{selectedClinic?.name || "Clinic"}</p>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => (tab === "staff" ? loadStaff(1) : loadInvites(1))}
+              disabled={loading}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-black/[0.09] text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </button>
+            <Link
+              to="/dashboard/staff/invite"
+              className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all no-underline"
+            >
+              <Plus size={14} />
+              Invite staff
+            </Link>
+          </div>
+        </div>
 
-        {activeTab === "staff_invites" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <StaffInvitationsTab
-              clinicId={selectedClinic?.id}
-              branchId={selectedClinic?.branchId}
-              onInvite={() => setShowInviteModal(true)}
+        <div className="flex gap-1 mb-5 bg-white rounded-2xl border border-black/[0.09] p-1">
+          {[
+            { id: "staff", label: "Staff", icon: Users },
+            { id: "staff_invites", label: "Invitations", icon: Mail },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[12px] font-semibold rounded-xl transition-all cursor-pointer border-none ${tab === id ? "bg-[#4A7C59] text-white shadow-sm" : "bg-transparent text-[#8A9BB0] hover:text-[#0D1117]"
+                }`}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-3 mb-4">
+          <div className="flex-1 relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B8C0CC] pointer-events-none" />
+            <input
+              className={inputCls + " pl-9"}
+              placeholder={tab === "staff" ? "Search by name, email, staff ID…" : "Search by email…"}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {tab === "staff" && (
+            <div className="relative">
+              <select
+                className="px-3 pr-8 py-2 text-[12px] font-['DM_Sans'] bg-white border border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] transition-all appearance-none cursor-pointer"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="terminated">Terminated</option>
+                <option value="resigned">Resigned</option>
+              </select>
+              <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+            </div>
+          )}
+        </div>
+
+        {tab === "staff" && (
+          <StaffTable
+            staff={staff}
+            loading={loading}
+            pagination={pagination}
+            currentUserId={currentUserId}
+            onPageChange={(p) => loadStaff(p)}
+            onPhotoClick={(s) => setPreviewPhoto(s)}
+          />
         )}
 
-        {selectedStaff && activeTab === "staff" && (
-          <>
-            <div className="fixed inset-0 bg-[#0D1117]/45 backdrop-blur-sm z-[55] xl:hidden" onClick={closeDetail} />
-            <div className="w-[380px] flex-shrink-0 overflow-hidden border-l border-black/[0.09] fixed xl:relative right-0 top-0 bottom-0 z-[60] xl:z-auto shadow-[-4px_0_32px_rgba(13,17,23,0.12)] xl:shadow-none">
-              <StaffDetailPanel
-                staff={selectedStaff}
-                onClose={closeDetail}
-                onEdit={openEdit}
-                onToggleLeave={handleToggleLeave}
-                onToggleActive={handleToggleActive}
-              />
-            </div>
-          </>
+        {tab === "staff_invites" && (
+          <InvitesTable
+            invites={staffInvites}
+            loading={loading}
+            pagination={pagination}
+            clinicId={clinicId}
+            branchId={branchId}
+            currentUserEmail={currentUserEmail}
+            onPageChange={(p) => loadInvites(p)}
+            onResend={handleResend}
+          />
         )}
       </div>
 
-      {showEditModal && (
-        <StaffModal
-          editStaff={editId ? staffList.find(s => s.id === editId) : null}
-          onClose={() => { setShowEditModal(false); setEditId(null); }}
-          onSave={handleSave}
+      {previewPhoto && (
+        <ImagePreview
+          isOpen={!!previewPhoto}
+          onClose={() => setPreviewPhoto(null)}
+          asset={{
+            file_url: previewPhoto.profile_photo_url,
+            file_original_name: `${previewPhoto.fname} ${previewPhoto.lname}`,
+            fname: previewPhoto.fname,
+            lname: previewPhoto.lname,
+          }}
         />
       )}
+    </div>
+  );
+}
 
-      {showInviteModal && (
-        <InviteStaffModal
-          onClose={() => setShowInviteModal(false)}
-          clinicId={selectedClinic?.id}
-          branchId={selectedClinic?.branchId}
-        />
-      )}
+function StaffTable({ staff, loading, pagination, currentUserId, onPageChange, onPhotoClick }) {
+  if (loading && staff.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-[#8A9BB0]" />
+      </div>
+    );
+  }
+
+  if (!loading && staff.length === 0) {
+    return (
+      <EmptyState
+        icon={Users}
+        title="No staff found"
+        desc="No staff profiles match your search or have been set up yet."
+        action={
+          <Link
+            to="/dashboard/staff/invite"
+            className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all no-underline"
+          >
+            <Plus size={13} />
+            Invite staff
+          </Link>
+        }
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-2xl border border-black/[0.09] overflow-visible">
+        <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-0 px-5 py-3 border-b border-black/[0.06]">
+          {["", "Name", "Role", "Branch", "Status", ""].map((h, i) => (
+            <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] px-2 first:px-0 last:px-0">
+              {h}
+            </span>
+          ))}
+        </div>
+
+        {staff.map((member) => {
+          const isYou = member.user_id === currentUserId;
+          return (
+            <div
+              key={member.staff_profile_id || member.user_id}
+              className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-0 px-5 py-3.5 border-b border-black/[0.04] hover:bg-[#FAFAF8] transition-colors last:border-b-0"
+            >
+              <div className="pr-3">
+                <Avatar
+                  fname={member.fname}
+                  lname={member.lname}
+                  photoUrl={member.profile_photo_url}
+                  size={10}
+                  onClick={member.profile_photo_url ? () => onPhotoClick(member) : undefined}
+                />
+              </div>
+              <div className="min-w-0 px-2">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[13px] font-semibold text-[#0D1117] truncate">
+                    {member.fname} {member.lname}
+                  </p>
+                  {isYou && (
+                    <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#4A7C59] text-white leading-none">
+                      you
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#8A9BB0] truncate">{member.email}</p>
+                {member.staff_id && <p className="text-[10px] text-[#B8C0CC] font-mono">{member.staff_id}</p>}
+              </div>
+              <div className="px-2">
+                <span className="text-[11px] font-semibold text-[#4a6580] bg-[#EEF2F7] px-2.5 py-1 rounded-full whitespace-nowrap">
+                  {member.role_name || "—"}
+                </span>
+              </div>
+              <div className="px-2">
+                <div className="flex items-center gap-1 text-[11px] text-[#8A9BB0]">
+                  <Building2 size={11} />
+                  <span className="whitespace-nowrap">{member.branch_name || "—"}</span>
+                </div>
+              </div>
+              <div className="px-2">
+                <span
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${STATUS_COLORS[member.staff_status] || "bg-[#EEF2F7] text-[#4a6580]"
+                    }`}
+                >
+                  {member.staff_status || "active"}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 pl-2">
+                {/* Hide the settings shortcut and menu for the current user's own row */}
+                {member.staff_profile_id && !isYou && (
+                  <Link
+                    to={`/dashboard/staff/edit/${member.staff_profile_id}`}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline"
+                  >
+                    <Settings size={13} />
+                  </Link>
+                )}
+                <StaffRowMenu member={member} isYou={isYou} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {pagination?.totalPages > 1 && <PaginationBar pagination={pagination} onPageChange={onPageChange} />}
+    </>
+  );
+}
+
+function InvitesTable({ invites, loading, pagination, clinicId, branchId, currentUserEmail, onPageChange, onResend }) {
+  if (loading && invites.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-[#8A9BB0]" />
+      </div>
+    );
+  }
+
+  if (!loading && invites.length === 0) {
+    return (
+      <EmptyState
+        icon={Mail}
+        title="No invitations"
+        desc="No invitations have been sent to this branch yet."
+        action={
+          <Link
+            to="/dashboard/staff/invite"
+            className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all no-underline"
+          >
+            <Plus size={13} />
+            Invite staff
+          </Link>
+        }
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-2xl border border-black/[0.09] overflow-visible">
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-0 px-5 py-3 border-b border-black/[0.06]">
+          {["Email", "Role", "Status", "Profile", ""].map((h, i) => (
+            <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] px-2 first:px-0 last:px-0">
+              {h}
+            </span>
+          ))}
+        </div>
+
+        {invites.map((inv) => {
+          const profileDone = !!inv.staff_profile_id;
+          const isOwnInvite = !!(currentUserEmail && inv.email?.toLowerCase() === currentUserEmail);
+
+          return (
+            <div
+              key={inv.id}
+              className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-0 px-5 py-3.5 border-b border-black/[0.04] hover:bg-[#FAFAF8] transition-colors last:border-b-0"
+            >
+              <div className="min-w-0 pr-3">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[13px] font-semibold text-[#0D1117] truncate">{inv.email}</p>
+                  {isOwnInvite && (
+                    <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#4A7C59] text-white leading-none">
+                      you
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#8A9BB0]">
+                  {new Date(inv.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  {inv.invited_by_fname && (
+                    <>
+                      {" "}· by {inv.invited_by_fname} {inv.invited_by_lname}
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="px-2">
+                <span className="text-[11px] font-semibold text-[#4a6580] bg-[#EEF2F7] px-2.5 py-1 rounded-full whitespace-nowrap">
+                  {inv.role_name || "—"}
+                </span>
+              </div>
+              <div className="px-2">
+                <span
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${INVITE_STATUS_COLORS[inv.status] || "bg-[#EEF2F7] text-[#4a6580]"
+                    }`}
+                >
+                  {inv.status}
+                </span>
+              </div>
+              <div className="px-2">
+                {/* Always hide profile setup/edit buttons for own invite */}
+                {isOwnInvite ? (
+                  <span className="text-[10px] text-[#B8C0CC]">—</span>
+                ) : profileDone ? (
+                  <Link
+                    to={`/dashboard/staff/edit/${inv.staff_profile_id}`}
+                    className="flex items-center gap-1 text-[10px] font-bold text-[#4A7C59] bg-[#E8F2EB] px-2.5 py-1 rounded-full no-underline hover:bg-[#4A7C59] hover:text-white transition-all whitespace-nowrap"
+                  >
+                    <CheckCircle2 size={10} />
+                    Set up
+                  </Link>
+                ) : inv.status === "accepted" ? (
+                  <Link
+                    to={`/dashboard/staff/set-up/${inv.id}`}
+                    className="flex items-center gap-1 text-[10px] font-bold text-[#C9A84C] bg-[#FBF6E9] px-2.5 py-1 rounded-full no-underline hover:bg-[#C9A84C] hover:text-white transition-all whitespace-nowrap"
+                  >
+                    <Settings size={10} />
+                    Setup
+                  </Link>
+                ) : (
+                  <span className="text-[10px] text-[#B8C0CC]">—</span>
+                )}
+              </div>
+              <div className="pl-2">
+                <InviteRowMenu
+                  invite={inv}
+                  clinicId={clinicId}
+                  branchId={branchId}
+                  onResend={onResend}
+                  currentUserEmail={currentUserEmail}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {pagination?.totalPages > 1 && <PaginationBar pagination={pagination} onPageChange={onPageChange} />}
+    </>
+  );
+}
+
+function PaginationBar({ pagination, onPageChange }) {
+  const { page, totalPages, total, hasNext, hasPrev } = pagination;
+  return (
+    <div className="flex items-center justify-between mt-4">
+      <p className="text-[11px] text-[#8A9BB0]">
+        {total} total · Page {page} of {totalPages}
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={!hasPrev}
+          className="px-3 py-1.5 text-[11px] font-semibold bg-white border border-black/[0.09] rounded-lg text-[#0D1117] hover:bg-[#F7F4EF] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          Prev
+        </button>
+        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+          const p = Math.max(1, Math.min(totalPages - 4, page - 2)) + i;
+          return (
+            <button
+              key={p}
+              onClick={() => onPageChange(p)}
+              className={`w-7 h-7 text-[11px] font-semibold rounded-lg transition-all cursor-pointer border-none ${p === page ? "bg-[#4A7C59] text-white" : "bg-white border border-black/[0.09] text-[#0D1117] hover:bg-[#F7F4EF]"
+                }`}
+            >
+              {p}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={!hasNext}
+          className="px-3 py-1.5 text-[11px] font-semibold bg-white border border-black/[0.09] rounded-lg text-[#0D1117] hover:bg-[#F7F4EF] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }

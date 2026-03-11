@@ -1,73 +1,45 @@
 import { useState, useEffect } from "react";
-import {
-  X,
-  Upload,
-  Image as ImageIcon,
-  File,
-  Loader2,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { X, Upload, Image as ImageIcon, File, Loader2, Search, Trash2 } from "lucide-react";
 import { useAssetStore } from "../../../store/store";
 import { fileToBase64 } from "../../../utils/fileToBase64";
 import Pagination from "../Pagination";
 
-export default function FilePickerModal({
-  isOpen,
-  onClose,
-  onSelectFile,
-  websiteId,
-  allowedTypes = ["image"],
-}) {
+export default function FilePickerModal({ isOpen, onClose, onSelectFile, clinicId, allowedTypes = ["image"] }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const {
-    assets,
-    loading,
-    pagination,
-    fetchAssets,
-    uploadAsset,
-    deleteAsset
-  } = useAssetStore();
+  const { assets, loading, pagination, fetchAssets, uploadAsset, deleteAsset } = useAssetStore();
 
   useEffect(() => {
-    if (isOpen && websiteId) {
+    if (isOpen && clinicId) {
       setCurrentPage(1);
-      fetchAssets(websiteId, 1);
+      fetchAssets(clinicId, 1);
     }
-  }, [isOpen, websiteId, fetchAssets]);
+  }, [isOpen, clinicId]);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     if (allowedTypes.includes("image") && !file.type.startsWith("image/")) {
       alert("Please select an image file");
       return;
     }
-
     setUploading(true);
     try {
       const base64Data = await fileToBase64(file);
-
-      const payload = {
+      const newFile = await uploadAsset(clinicId, {
         file: base64Data,
         filename: file.name,
         filetype: file.type,
-        website_id: websiteId,
         file_size: file.size,
         file_original_name: file.name,
-      };
-
-      const newFile = await uploadAsset(payload);
+      });
       setSelectedFile(newFile);
       setCurrentPage(1);
-      await fetchAssets(websiteId, 1);
+      await fetchAssets(clinicId, 1);
     } catch (error) {
-      console.error("Failed to upload file:", error);
       alert("Failed to upload file");
     } finally {
       setUploading(false);
@@ -76,22 +48,17 @@ export default function FilePickerModal({
 
   const handleDeleteFile = async (fileId) => {
     if (!confirm("Are you sure you want to delete this file?")) return;
-
     try {
-      await deleteAsset(fileId);
-      if (selectedFile?.id === fileId) {
-        setSelectedFile(null);
-      }
-      await fetchAssets(websiteId, currentPage);
-    } catch (error) {
-      console.error("Failed to delete file:", error);
+      await deleteAsset(clinicId, fileId);
+      if (selectedFile?.id === fileId) setSelectedFile(null);
+    } catch {
       alert("Failed to delete file");
     }
   };
 
   const handlePageChange = (page) => {
     setCurrentPage(page);
-    fetchAssets(websiteId, page);
+    fetchAssets(clinicId, page);
   };
 
   const handleSelect = () => {
@@ -102,21 +69,10 @@ export default function FilePickerModal({
   };
 
   const filteredFiles = assets.filter((file) => {
-    const matchesSearch = file.file_original_name
-      ?.toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesType =
-      allowedTypes.includes("all") ||
-      (allowedTypes.includes("image") && file.mime_type?.startsWith("image"));
+    const matchesSearch = file.file_original_name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = allowedTypes.includes("all") || (allowedTypes.includes("image") && file.mime_type?.startsWith("image"));
     return matchesSearch && matchesType;
   });
-
-  const getFileUrl = (file) => {
-    if (file.file_path && file.file_path.startsWith("http")) {
-      return file.file_path;
-    }
-    return `${import.meta.env.VITE_APP_URL}${file.file_path}`;
-  };
 
   const formatFileSize = (bytes) => {
     if (!bytes) return "0 KB";
@@ -128,179 +84,112 @@ export default function FilePickerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
-        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+    <div className="fixed inset-0 bg-[#0D1117]/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
+      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-[0_24px_80px_rgba(13,17,23,0.25)] animate-[modalIn_0.22s_ease]">
+        <style>{`@keyframes modalIn{from{opacity:0;transform:scale(0.95) translateY(8px)}to{opacity:1;transform:none}}`}</style>
+
+        <div className="p-5 border-b border-black/[0.09] flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Select File</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Choose a file or upload a new one
-            </p>
+            <h2 className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117]">Media Library</h2>
+            <p className="text-[12px] text-[#8A9BB0] mt-0.5">Choose a file or upload a new one</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
+          <button onClick={onClose} className="w-8 h-8 bg-[#F7F4EF] rounded-lg flex items-center justify-center text-[#8A9BB0] hover:bg-[#FAF0ED] hover:text-[#E8927C] transition-all border-none cursor-pointer">
+            <X size={16} />
           </button>
         </div>
 
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search files..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </div>
-            <label className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors cursor-pointer flex items-center gap-2">
-              {uploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Uploading...</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4" />
-                  <span>Upload</span>
-                </>
-              )}
-              <input
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-                accept={allowedTypes.includes("image") ? "image/*" : "*"}
-                disabled={uploading}
-              />
-            </label>
+        <div className="p-4 border-b border-black/[0.09] flex gap-3">
+          <div className="flex-1 relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search files…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-xl outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all"
+            />
           </div>
+          <label className="flex items-center gap-1.5 px-3 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all cursor-pointer font-['DM_Sans']">
+            {uploading ? <><Loader2 size={13} className="animate-spin" />Uploading…</> : <><Upload size={13} />Upload</>}
+            <input type="file" className="hidden" onChange={handleFileUpload} accept={allowedTypes.includes("image") ? "image/*" : "*"} disabled={uploading} />
+          </label>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+            <div className="flex items-center justify-center h-48">
+              <Loader2 size={24} className="animate-spin text-[#4A7C59]" />
             </div>
           ) : filteredFiles.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {filteredFiles.map((file) => {
-                const isImage =
-                  file.mime_type?.startsWith("image/") ||
-                  file.mime_type === "image";
+                const isImage = file.mime_type?.startsWith("image/") || file.mime_type === "image";
                 const isSelected = selectedFile?.id === file.id;
-
                 return (
                   <div
                     key={file.id}
                     onClick={() => setSelectedFile(file)}
-                    className={`group relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all ${isSelected
-                      ? "border-indigo-500 ring-2 ring-indigo-100"
-                      : "border-gray-200 hover:border-gray-300"
-                      }`}
+                    className={`group relative border-2 rounded-xl overflow-hidden cursor-pointer transition-all ${isSelected ? "border-[#4A7C59] shadow-[0_0_0_3px_rgba(74,124,89,0.12)]" : "border-black/[0.09] hover:border-[#4A7C59]/40"}`}
                   >
-                    <div className="aspect-square bg-gray-50 flex items-center justify-center">
+                    <div className="aspect-square bg-[#F7F4EF] flex items-center justify-center">
                       {isImage ? (
-                        <img
-                          src={getFileUrl(file)}
-                          loading="lazy"
-                          alt={file.file_original_name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src =
-                              "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIGZpbGw9IiNGRjVFNTAiLz48cGF0aCBkPSJNMzAgMzVMMjUgMjVMMjAgMzVIMzVaMzUgNDBIMjVMMzAgMzBMMzUgNDBaIiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==";
-                          }}
-                        />
+                        <img src={file.file_url} loading="lazy" alt={file.file_original_name} className="w-full h-full object-cover" />
                       ) : (
-                        <File className="w-12 h-12 text-gray-400" />
+                        <File size={32} className="text-[#8A9BB0]" />
                       )}
                     </div>
-
                     {isSelected && (
-                      <div className="absolute top-2 right-2 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-4 h-4 text-white"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                            clipRule="evenodd"
-                          />
+                      <div className="absolute top-2 right-2 w-5 h-5 bg-[#4A7C59] rounded-full flex items-center justify-center">
+                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
                       </div>
                     )}
-
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteFile(file.id);
-                      }}
-                      className="absolute top-2 left-2 p-1.5 bg-red-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700"
-                      title="Delete file"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id); }}
+                      className="absolute top-2 left-2 p-1 bg-[#c05c3c] text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#a04030] border-none cursor-pointer"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 size={11} />
                     </button>
-
-                    <div className="p-2 border-t border-gray-200 bg-white">
-                      <p className="text-xs font-medium text-gray-900 truncate">
-                        {file.file_original_name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatFileSize(file.file_size)}
-                      </p>
+                    <div className="p-2 border-t border-black/[0.06] bg-white">
+                      <p className="text-[11px] font-semibold text-[#0D1117] truncate">{file.file_original_name}</p>
+                      <p className="text-[10px] text-[#8A9BB0]">{formatFileSize(file.file_size)}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                <ImageIcon className="w-8 h-8 text-gray-400" />
+            <div className="flex flex-col items-center justify-center h-48 text-center">
+              <div className="w-14 h-14 bg-[#F7F4EF] rounded-2xl flex items-center justify-center mb-3">
+                <ImageIcon size={22} className="text-[#8A9BB0]" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                No files found
-              </h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Upload your first file to get started
-              </p>
+              <p className="text-[14px] font-semibold text-[#0D1117] mb-1">No files found</p>
+              <p className="text-[12px] text-[#8A9BB0]">Upload your first file to get started</p>
             </div>
           )}
         </div>
 
-        <Pagination
-          currentPage={currentPage}
-          totalPages={pagination.lastPage}
-          onPageChange={handlePageChange}
-          loading={loading}
-          totalItems={pagination.total}
-          itemsPerPage={pagination.perPage}
-        />
+        <div className="px-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={pagination.lastPage}
+            onPageChange={handlePageChange}
+            loading={loading}
+            totalItems={pagination.total}
+            itemsPerPage={pagination.perPage}
+          />
+        </div>
 
-        <div className="p-6 border-t border-gray-200 flex justify-between items-center">
-          <p className="text-sm text-gray-500">
-            {selectedFile
-              ? `Selected: ${selectedFile.file_original_name}`
-              : "No file selected"}
+        <div className="p-4 border-t border-black/[0.09] flex justify-between items-center">
+          <p className="text-[12px] text-[#8A9BB0]">
+            {selectedFile ? `Selected: ${selectedFile.file_original_name}` : "No file selected"}
           </p>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
+          <div className="flex gap-2.5">
+            <button onClick={onClose} className="px-4 py-2 bg-[#F7F4EF] border border-black/[0.09] text-[#8A9BB0] text-[12px] font-semibold rounded-xl hover:bg-[#EEF2F7] transition-all font-['DM_Sans'] cursor-pointer">
               Cancel
             </button>
-            <button
-              onClick={handleSelect}
-              disabled={!selectedFile}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleSelect} disabled={!selectedFile} className="px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all font-['DM_Sans'] border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
               Select File
             </button>
           </div>

@@ -19,6 +19,7 @@ const Register = lazy(() => import("../components/auth/Register"));
 const VerifyEmail = lazy(() => import("../components/auth/VerifyEmail"));
 const StaffInvite = lazy(() => import("../components/staffs/StaffInvite"));
 const StaffSetUp = lazy(() => import("../components/staffs/StaffSetUp"));
+const StaffEdit = lazy(() => import("../components/staffs/StaffEdit"));
 
 // Main
 // const Appointments   = lazy(() => import("../pages/Appointments"));
@@ -55,7 +56,7 @@ const Staff = lazy(() => import("../pages/Staff"));
 // const PurchaseOrders = lazy(() => import("../pages/PurchaseOrders"));
 
 // // Media
-// const MediaLibrary   = lazy(() => import("../pages/MediaLibrary"));
+const MediaLibrary = lazy(() => import("../pages/MediaLibrary"));
 // const PatientImages  = lazy(() => import("../pages/PatientImages"));
 // const ScanUploads    = lazy(() => import("../pages/ScanUploads"));
 // const Documents      = lazy(() => import("../pages/Documents"));
@@ -187,6 +188,7 @@ export default function AppRoutes() {
               {/* <Route path="/dashboard/ward"           element={<Ward />} /> */}
               <Route path="/dashboard/staff" element={<Staff />} />
               <Route path="/dashboard/staff/set-up/:inviteId" element={<StaffSetUp />} />
+              <Route path="/dashboard/staff/edit/:staffId" element={<StaffEdit />} />
               {/* <Route path="/dashboard/shifts"         element={<Shifts />} /> */}
             </Route>
             {/* 
@@ -228,16 +230,14 @@ export default function AppRoutes() {
             </Route> */}
 
             {/* ── Media ────────────────────────────────────────────────────── */}
-            {/* <Route element={<RoleProtectedRoute allowedRoles={DOCTOR_UP} />}>
-              <Route path="/dashboard/media-library"  element={<MediaLibrary />} />
-              <Route path="/dashboard/patient-images" element={<PatientImages />} />
-              <Route path="/dashboard/scan-uploads"   element={<ScanUploads />} />
+            <Route element={<RoleProtectedRoute allowedRoles={DOCTOR_UP} />}>
+              <Route path="/dashboard/media-library" element={<MediaLibrary />} />
             </Route>
-
+            {/* 
             <Route element={<RoleProtectedRoute allowedRoles={ALL_STAFF} />}>
               <Route path="/dashboard/documents"     element={<Documents />} />
               <Route path="/dashboard/consent-forms" element={<ConsentForms />} />
-            </Route> */}
+            </Route>  */}
 
             {/* ── Patient Portal ────────────────────────────────────────────── */}
             {/* <Route element={<RoleProtectedRoute allowedRoles={PATIENT_ONLY} />}>
