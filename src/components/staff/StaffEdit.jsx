@@ -581,7 +581,7 @@ export default function StaffEdit() {
                 <ImagePreview
                     isOpen={showPhotoViewer}
                     onClose={() => setShowPhotoViewer(false)}
-                    asset={{ file_url: form.profile_photo_url, file_original_name: `${profile.fname} ${profile.lname}`, fname: profile.fname, lname: profile.lname }}
+                    asset={{ file_url: form.profile_photo_url, mime_type: "image/jpeg", file_original_name: `${profile.fname} ${profile.lname}`, fname: profile.fname, lname: profile.lname }}
                 />
             )}
         </div>

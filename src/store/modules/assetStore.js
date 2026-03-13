@@ -106,4 +106,23 @@ export const useAssetStore = create((set, get) => ({
       throw error;
     }
   },
+  downloadAsset: async (clinicId, assetId, filename) => {
+    try {
+      const response = await axiosInstance.get(
+        `/assets/${clinicId}/assets/${assetId}/download`,
+        { responseType: "blob" },
+      );
+      const blob = new Blob([response.data]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "download";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      throw error;
+    }
+  },
 }));

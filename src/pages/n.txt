@@ -1,1375 +1,2052 @@
-Staff.jsx:
+ImagePreview.jsx:
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Link, useSearchParams } from "react-router-dom";
 import {
-  Users, Mail, Plus, Search, RefreshCw, MoreVertical,
-  Settings, CheckCircle2, XCircle, Loader2, ChevronDown,
-  Eye, Building2, X, Send, ChevronLeft, ChevronRight,
+    X, Download, ZoomIn, ZoomOut, RotateCw, Info, ChevronLeft, ChevronRight,
+    Calendar, HardDrive, FileType, User, Maximize2, Minimize2,
+    FileText, File, ExternalLink, Copy, Check, FlipHorizontal,
+    Sun, Moon, Grid, Printer, Share2, RefreshCw,
 } from "lucide-react";
-import { debounce } from "lodash";
-import { useStaffStore, useClinicStore, useRolestore } from "../store/store";
-import ImagePreview from "../components/ui/file-manager/ImagePreview";
-import { useAuth } from "../context/Auth/UseAuth";
-import InviteModal from "../components/ui/modals/InviteModal";
-import StaffTable from "../components/staff/StaffTable";
-import InvitesTable from "../components/staff/InvitesTable";
 
+/* ─── helpers ─────────────────────────────────────────────── */
 
+function formatFileSize(bytes) {
+    if (!bytes) return "—";
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+}
 
-/* ─── colour maps ────────────────────────────────────────────── */
+function fmtDateTime(d) {
+    if (!d) return "—";
+    const dt = typeof d === "string" ? new Date(d) : d;
+    if (isNaN(dt)) return "—";
+    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()} at ${dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
 
-// Add this helper function before your component
-const getMimeTypeFromUrl = (url) => {
-  if (!url) return 'image/jpeg'; // default
+function isPdf(asset) {
+    return asset?.mime_type === "application/pdf" || (asset?.extension || "").toLowerCase() === "pdf";
+}
 
-  const extension = url.split('.').pop()?.toLowerCase();
+function isImage(asset) {
+    return asset?.mime_type?.startsWith("image/") || asset?.mime_type === "image";
+}
 
-  const mimeTypes = {
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'png': 'image/png',
-    'gif': 'image/gif',
-    'webp': 'image/webp',
-    'svg': 'image/svg+xml',
-    'avif': 'image/avif'
-  };
-
-  return mimeTypes[extension] || 'image/jpeg'; // fallback to jpeg
-};
-
-const inputCls =
-  "w-full px-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:bg-white transition-all placeholder-[#B8C0CC]";
-
-export default function Staff() {
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  // Derive all state from URL
-  const tab = searchParams.get("tab") || "staff";
-  const inviteModalOpen = searchParams.get("staff_invite") === "true";
-
-  const { selectedClinic } = useClinicStore();
-  const { user } = useAuth();
-  const {
-    staff, staffInvites, loading, pagination,
-    fetchClinicStaff, fetchStaffInvitations, resendInvite,
-  } = useStaffStore();
-  const { roles, loading: rolesLoading, fetchRoles } = useRolestore();
-
-  const [inputValue, setInputValue] = useState("");
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [previewPhoto, setPreviewPhoto] = useState(null);
-  const [toast, setToast] = useState(null);
-
-  const clinicId = selectedClinic?.id;
-  const branchId = selectedClinic?.branchId;
-  const currentUserId = user?.id;
-  const currentUserEmail = user?.email?.toLowerCase() ?? null;
-
-  useEffect(() => { fetchRoles(); }, []);
-
-  /* ── Modal URL helpers ─────────────────────────────────────── */
-  const openInviteModal = () => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("staff_invite", "true");
-      return next;
-    });
-  };
-
-  const closeInviteModal = () => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("staff_invite");
-      return next;
-    });
-  };
-
-  /* ── Lodash debounced search ───────────────────────────────── */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSetSearch = useCallback(debounce((val) => setSearch(val), 350), []);
-
-  const handleSearchChange = (e) => {
-    setInputValue(e.target.value);
-    debouncedSetSearch(e.target.value);
-  };
-
-  /* ── Toast ─────────────────────────────────────────────────── */
-  const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  /* ── Data loaders ──────────────────────────────────────────── */
-  const loadStaff = useCallback(
-    async (page = 1) => {
-      if (!clinicId) return;
-      try { await fetchClinicStaff(clinicId, { search, status: statusFilter || null, page }); } catch { }
-    },
-    [clinicId, branchId, search, statusFilter]
-  );
-
-  const loadInvites = useCallback(
-    async (page = 1) => {
-      if (!clinicId || !branchId) return;
-      try { await fetchStaffInvitations(clinicId, branchId, { search, page }); } catch { }
-    },
-    [clinicId, branchId, search]
-  );
-
-  useEffect(() => {
-    if (tab === "staff") loadStaff(1);
-    else loadInvites(1);
-  }, [tab, search, statusFilter]);
-
-  /* ── Handlers ──────────────────────────────────────────────── */
-  const handleResend = async (invite) => {
+/* Robust download: fetch → blob → anchor, with fallback */
+async function downloadAsset(asset) {
+    if (!asset?.file_url) return;
+    const filename = asset.file_original_name || asset.file_name || "download";
     try {
-      await resendInvite(clinicId, branchId, invite.id);
-      showToast("Invitation resent successfully.");
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to resend invite.", "error");
-    }
-  };
-
-  const handleInviteSuccess = () => {
-    showToast("Invitation sent successfully.");
-    loadInvites(1);
-    // Navigate to invites tab and remove modal param
-    setSearchParams({ tab: "staff_invites" });
-  };
-
-  const setTab = (t) => {
-    setInputValue("");
-    setSearch("");
-    setStatusFilter("");
-    setSearchParams({ tab: t });
-  };
-
-  return (
-    <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
-      <style>{`
-        .icon-btn {
-          width:28px;height:28px;display:flex;align-items:center;justify-content:center;
-          border-radius:8px;color:#8A9BB0;background:transparent;border:none;cursor:pointer;
-          transition:background .15s,color .15s;flex-shrink:0;
-        }
-        .icon-btn:hover { background:#F7F4EF; color:#0D1117; }
-        .menu-item {
-          width:100%;display:flex;align-items:center;gap:10px;
-          padding:10px 14px;font-size:12px;font-weight:500;color:#0D1117;
-          text-decoration:none;transition:background .12s;cursor:pointer;
-          background:transparent;border:none;
-        }
-        .menu-item:hover { background:#F7F4EF; }
-        .field-label {
-          display:block;font-size:11px;font-weight:700;
-          text-transform:uppercase;letter-spacing:.07em;color:#8A9BB0;margin-bottom:6px;
-        }
-        @keyframes slideIn { from{opacity:0;transform:translateX(12px)} to{opacity:1;transform:none} }
-      `}</style>
-
-      {/* ── Toast ── */}
-      {toast && (
-        <div className={`fixed top-5 right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl text-[13px] font-medium shadow-lg animate-[slideIn_0.2s_ease] ${toast.type === "error"
-          ? "bg-[#FAF0ED] text-[#c05c3c] border border-[#E8927C]/30"
-          : "bg-[#E8F2EB] text-[#2F5C3A] border border-[#4A7C59]/20"
-          }`}>
-          {toast.type === "error" ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
-          {toast.msg}
-        </div>
-      )}
-
-      {/* ── Invite Modal — open/close controlled entirely by URL ── */}
-      <InviteModal
-        open={inviteModalOpen}
-        onClose={closeInviteModal}
-        clinicId={clinicId}
-        branchId={branchId}
-        roles={roles}
-        rolesLoading={rolesLoading}
-        onSuccess={handleInviteSuccess}
-        inputCls={inputCls}
-      />
-
-      <div className="px-4 sm:px-6 py-6 max-w-[1100px] mx-auto">
-
-        {/* ── Page header ── */}
-        <div className="flex items-start justify-between mb-6 gap-3">
-          <div>
-            <h1 className="font-['DM_Serif_Display'] text-[24px] sm:text-[26px] text-[#0D1117] leading-tight">Staff</h1>
-            <p className="text-[13px] text-[#8A9BB0] mt-0.5">{selectedClinic?.name || "Clinic"}</p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => (tab === "staff" ? loadStaff(1) : loadInvites(1))}
-              disabled={loading}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-black/[0.09] text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            </button>
-            {/* Opens modal AND sets ?staff_invite=true in URL */}
-            <button
-              onClick={openInviteModal}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer whitespace-nowrap"
-            >
-              <Plus size={14} />
-              <span className="hidden sm:inline">Invite staff</span>
-              <span className="sm:hidden">Invite</span>
-            </button>
-          </div>
-        </div>
-
-        {/* ── Tabs ── */}
-        <div className="flex gap-1 mb-5 bg-white rounded-2xl border border-black/[0.09] p-1">
-          {[
-            { id: "staff", label: "Staff", icon: Users },
-            { id: "staff_invites", label: "Invitations", icon: Mail },
-          ].map(({ id, label, icon: Icon }) => (
-            <button
-              key={id} onClick={() => setTab(id)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[12px] font-semibold rounded-xl transition-all cursor-pointer border-none ${tab === id ? "bg-[#4A7C59] text-white shadow-sm" : "bg-transparent text-[#8A9BB0] hover:text-[#0D1117]"
-                }`}
-            >
-              <Icon size={13} />{label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Filters ── */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="flex-1 relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B8C0CC] pointer-events-none" />
-            <input
-              className={inputCls + " pl-9"}
-              placeholder={tab === "staff" ? "Search by name, email, staff ID…" : "Search by email…"}
-              value={inputValue}
-              onChange={handleSearchChange}
-            />
-          </div>
-          {tab === "staff" && (
-            <div className="relative self-start sm:self-auto">
-              <select
-                className="px-3 pr-8 py-2 text-[12px] font-['DM_Sans'] bg-white border border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] transition-all appearance-none cursor-pointer w-full sm:w-auto"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="">All statuses</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="terminated">Terminated</option>
-                <option value="resigned">Resigned</option>
-              </select>
-              <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
-            </div>
-          )}
-        </div>
-
-        {/* ── Table panels ── */}
-        {tab === "staff" && (
-          <StaffTable
-            staff={staff} loading={loading} pagination={pagination}
-            currentUserId={currentUserId}
-            onPageChange={(p) => loadStaff(p)}
-            onPhotoClick={(s) => setPreviewPhoto(s)}
-            onInvite={openInviteModal}
-          />
-        )}
-        {tab === "staff_invites" && (
-          <InvitesTable
-            invites={staffInvites} loading={loading} pagination={pagination}
-            clinicId={clinicId} branchId={branchId}
-            currentUserEmail={currentUserEmail}
-            onPageChange={(p) => loadInvites(p)}
-            onResend={handleResend}
-            onInvite={openInviteModal}
-          />
-        )}
-      </div>
-
-      {previewPhoto && (
-        <ImagePreview
-          isOpen={!!previewPhoto}
-          onClose={() => setPreviewPhoto(null)}
-          asset={{
-            file_url: previewPhoto?.profile_photo_url,
-            file_original_name: `${previewPhoto.fname} ${previewPhoto.lname}`,
-            mime_type: getMimeTypeFromUrl(previewPhoto?.profile_photo_url),
-            fname: previewPhoto.fname,
-            lname: previewPhoto.lname,
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-
-
-StaffEdit.jsx:
-import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import {
-    ArrowLeft, User, Phone, Briefcase, ShieldCheck,
-    AlertCircle, Loader2, ChevronRight, Check,
-    HeartPulse, FileText, XCircle, Image as ImageIcon,
-    Shield, Eye, Lock, Plus, X,
-} from "lucide-react";
-import { useStaffStore, useClinicStore, useRolestore } from "../../store/store";
-import FilePickerModal from "../ui/modals/FilePickerModal";
-import ImagePreview from "../ui/file-manager/ImagePreview";
-import { useAuth } from "../../context/Auth/UseAuth";
-
-const EMPLOYMENT_TYPES = ["full_time", "part_time", "contract", "locum"];
-const GENDERS = ["male", "female", "other"];
-const SALARY_FREQUENCIES = ["monthly", "weekly", "daily", "hourly"];
-const STAFF_STATUSES = ["active", "suspended", "terminated", "resigned"];
-const SECTIONS = [
-    { id: "personal", label: "Personal Info", icon: User },
-    { id: "contact", label: "Contact", icon: Phone },
-    { id: "employment", label: "Employment", icon: Briefcase },
-    { id: "medical", label: "Professional", icon: HeartPulse },
-    { id: "emergency", label: "Emergency Contact", icon: ShieldCheck },
-    { id: "notes", label: "Notes", icon: FileText },
-];
-
-const inputCls = "w-full px-3 py-2.5 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:shadow-[0_0_0_3px_rgba(74,124,89,0.08)] focus:bg-white transition-all placeholder-[#B8C0CC] appearance-none disabled:opacity-50 disabled:cursor-not-allowed";
-const labelCls = "block text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] mb-1.5";
-
-function Field({ label, children, span = 1 }) {
-    return (
-        <div className={span === 2 ? "col-span-2" : ""}>
-            <label className={labelCls}>{label}</label>
-            {children}
-        </div>
-    );
-}
-
-function SectionCard({ title, icon: Icon, children, active, onClick, completed }) {
-    return (
-        <div className={`rounded-2xl border transition-all ${active ? "border-[#4A7C59] shadow-[0_0_0_3px_rgba(74,124,89,0.08)]" : "border-black/[0.09]"} bg-white overflow-hidden`}>
-            <button onClick={onClick} className="w-full flex items-center gap-3 px-5 py-4 text-left cursor-pointer bg-transparent border-none">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${active ? "bg-[#4A7C59] text-white" : completed ? "bg-[#E8F2EB] text-[#4A7C59]" : "bg-[#F7F4EF] text-[#8A9BB0]"}`}>
-                    {completed && !active ? <Check size={14} /> : <Icon size={14} />}
-                </div>
-                <span className={`text-[13px] font-semibold flex-1 font-['DM_Sans'] ${active ? "text-[#4A7C59]" : "text-[#0D1117]"}`}>{title}</span>
-                <ChevronRight size={14} className={`text-[#8A9BB0] transition-transform ${active ? "rotate-90" : ""}`} />
-            </button>
-            {active && (
-                <div className="px-5 pb-5 border-t border-black/[0.06]">
-                    <div className="pt-4">{children}</div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function DepartmentSelect({ clinicId, branchId, selectedDepartments, onChange }) {
-    const [departments, setDepartments] = useState([]);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (!clinicId || !branchId) return;
-        setLoading(true);
-        import("../../api/axiosInstance").then(({ default: axiosInstance }) => {
-            axiosInstance.get(`/clinics/${clinicId}/branches/${branchId}/departments`)
-                .then(res => {
-                    setDepartments(res.data?.data?.departments || []);
-                })
-                .catch(() => setDepartments([]))
-                .finally(() => setLoading(false));
-        });
-    }, [clinicId, branchId]);
-
-    const toggle = (dept) => {
-        const exists = selectedDepartments.find(d => d.id === dept.id);
-        if (exists) {
-            onChange(selectedDepartments.filter(d => d.id !== dept.id));
-        } else {
-            onChange([...selectedDepartments, dept]);
-        }
-    };
-
-    if (loading) return <div className="text-[12px] text-[#8A9BB0]">Loading departments…</div>;
-    if (!departments.length) return <div className="text-[12px] text-[#B8C0CC]">No departments available for this branch.</div>;
-
-    return (
-        <div className="flex flex-wrap gap-2">
-            {departments.map(dept => {
-                const selected = selectedDepartments.find(d => d.id === dept.id);
-                return (
-                    <button
-                        key={dept.id}
-                        type="button"
-                        onClick={() => toggle(dept)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer font-['DM_Sans'] ${selected
-                            ? "bg-[#4A7C59] text-white border-[#4A7C59]"
-                            : "bg-[#F7F4EF] text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]/40 hover:text-[#4A7C59]"
-                            }`}
-                    >
-                        {selected ? <Check size={11} /> : <Plus size={11} />}
-                        {dept.name}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
-function toInputDate(val) {
-    if (!val) return "";
-    const d = new Date(val);
-    if (isNaN(d)) return "";
-    return d.toISOString().slice(0, 10);
-}
-
-function initials(fname, lname) {
-    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
-}
-
-const EMPTY_FORM = {
-    phone: "", alt_phone: "", gender: "", date_of_birth: "",
-    profile_photo_url: "", address: "", city: "", state_id: "",
-    date_joined: "", date_left: "", employment_type: "full_time",
-    salary: "", salary_frequency: "monthly", specialization: "",
-    license_number: "", license_expiry: "", qualification: "",
-    emergency_contact_name: "", emergency_contact_phone: "",
-    emergency_contact_relationship: "", notes: "", status: "active",
-    new_role_id: "",
-};
-
-export default function StaffEdit() {
-    const { staffId } = useParams();
-    const navigate = useNavigate();
-    const { selectedClinic } = useClinicStore();
-    const { user } = useAuth();
-    const { getStaffProfileForEdit, updateStaffProfile } = useStaffStore();
-    const { roles, loading: rolesLoading, fetchRoles } = useRolestore();
-
-    const [profile, setProfile] = useState(null);
-    const [fetchLoading, setFetchLoading] = useState(true);
-    const [fetchError, setFetchError] = useState(null);
-    const [isOwnProfile, setIsOwnProfile] = useState(false);
-
-    const [activeSection, setActiveSection] = useState("personal");
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
-    const [error, setError] = useState(null);
-    const [completedSections, setCompletedSections] = useState(new Set());
-    const [showFilePicker, setShowFilePicker] = useState(false);
-    const [showPhotoViewer, setShowPhotoViewer] = useState(false);
-    const [form, setForm] = useState(EMPTY_FORM);
-    const [selectedDepartments, setSelectedDepartments] = useState([]);
-
-    const currentUserId = user?.id;
-
-    useEffect(() => { fetchRoles(); }, []);
-
-    useEffect(() => {
-        if (!staffId || !selectedClinic?.id) return;
-        setFetchLoading(true);
-        setFetchError(null);
-        getStaffProfileForEdit(selectedClinic.id, selectedClinic.branchId, staffId)
-            .then((data) => {
-                setProfile(data);
-                if (currentUserId && data?.user_id && String(data.user_id) === String(currentUserId)) {
-                    setIsOwnProfile(true);
-                    setFetchLoading(false);
-                    return;
-                }
-                setForm({
-                    phone: data.phone || "",
-                    alt_phone: data.alt_phone || "",
-                    gender: data.gender || "",
-                    date_of_birth: toInputDate(data.date_of_birth),
-                    profile_photo_url: data.profile_photo_url || "",
-                    address: data.address || "",
-                    city: data.city || "",
-                    state_id: data.state_id ? String(data.state_id) : "",
-                    date_joined: toInputDate(data.date_joined),
-                    date_left: toInputDate(data.date_left),
-                    employment_type: data.employment_type || "full_time",
-                    salary: data.salary ? String(data.salary) : "",
-                    salary_frequency: data.salary_frequency || "monthly",
-                    specialization: data.specialization || "",
-                    license_number: data.license_number || "",
-                    license_expiry: toInputDate(data.license_expiry),
-                    qualification: data.qualification || "",
-                    emergency_contact_name: data.emergency_contact_name || "",
-                    emergency_contact_phone: data.emergency_contact_phone || "",
-                    emergency_contact_relationship: data.emergency_contact_relationship || "",
-                    notes: data.notes || "",
-                    status: data.status || "active",
-                    new_role_id: data.role_id ? String(data.role_id) : "",
-                });
-                if (data.departments && Array.isArray(data.departments)) {
-                    setSelectedDepartments(data.departments.filter(Boolean));
-                }
-                setCompletedSections(new Set(SECTIONS.map(s => s.id)));
-                setFetchLoading(false);
-            })
-            .catch((err) => {
-                setFetchError(err?.response?.data?.message || err?.message || "Failed to load staff profile.");
-                setFetchLoading(false);
-            });
-    }, [staffId, selectedClinic?.id]);
-
-    const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
-
-    const markComplete = (sectionId) => setCompletedSections(prev => new Set([...prev, sectionId]));
-
-    const handleSectionNext = (currentId, nextId) => {
-        markComplete(currentId);
-        setActiveSection(nextId);
+        const res = await fetch(asset.file_url, { mode: "cors" });
+        if (!res.ok) throw new Error("fetch failed");
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
         setTimeout(() => {
-            document.getElementById(`section-${nextId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }, 80);
-    };
-
-    const handleSubmit = async () => {
-        setSaving(true);
-        setError(null);
-        try {
-            await updateStaffProfile(selectedClinic.id, selectedClinic.branchId, staffId, {
-                ...form,
-                salary: form.salary ? parseFloat(form.salary) : null,
-                state_id: form.state_id ? parseInt(form.state_id, 10) : null,
-                new_role_id: form.new_role_id ? parseInt(form.new_role_id, 10) : null,
-                department_ids: selectedDepartments.map(d => d.id),
-            });
-            setSaved(true);
-            setTimeout(() => navigate("/dashboard/staff"), 1800);
-        } catch (err) {
-            setError(err?.response?.data?.message || err?.message || "Failed to update profile.");
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    if (fetchLoading) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center">
-                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
-                    <Loader2 size={28} className="animate-spin" />
-                    <p className="text-[13px]">Loading staff profile…</p>
-                </div>
-            </div>
-        );
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+        }, 500);
+    } catch {
+        /* CORS fallback: open then try anchor trick */
+        const a = document.createElement("a");
+        a.href = asset.file_url;
+        a.download = filename;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     }
+}
 
-    if (isOwnProfile) {
+/* ─── Tooltip ─────────────────────────────────────────────── */
+function Tip({ label, children }) {
+    return (
+        <div className="relative group/tip">
+            {children}
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded-md text-[10px] font-semibold whitespace-nowrap bg-[#1a1f2e] text-white/80 border border-white/10 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 z-50">
+                {label}
+            </span>
+        </div>
+    );
+}
+
+/* ─── Toolbar Button ──────────────────────────────────────── */
+function TBtn({ onClick, active, danger, title, children, className = "" }) {
+    return (
+        <Tip label={title}>
+            <button
+                onClick={onClick}
+                className={`
+                    w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 border-none cursor-pointer text-[13px] font-semibold flex-shrink-0
+                    ${active ? "bg-[#4A7C59] text-white shadow-[0_0_0_1px_rgba(74,124,89,0.5)]" : ""}
+                    ${danger ? "text-white hover:bg-red-500/20 hover:text-red-400 bg-white/8" : ""}
+                    ${!active && !danger ? "bg-white/8 text-white/70 hover:bg-white/15 hover:text-white" : ""}
+                    ${className}
+                `}
+            >
+                {children}
+            </button>
+        </Tip>
+    );
+}
+
+/* ─── PDF Viewer ──────────────────────────────────────────── */
+function PdfViewer({ asset, fullscreen }) {
+    const [mode, setMode] = useState("embed"); // "embed" | "object" | "fallback"
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(null);
+
+    useEffect(() => { setMode("embed"); setPage(1); }, [asset?.id]);
+
+    if (mode === "fallback") {
         return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
-                <div className="text-center max-w-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-[#FBF6E9] flex items-center justify-center mx-auto mb-4">
-                        <Lock size={24} className="text-[#C9A84C]" />
-                    </div>
-                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">You can't edit your own profile</p>
-                    <p className="text-[13px] text-[#8A9BB0] mb-5">
-                        Staff profiles must be edited by an administrator.
-                    </p>
-                    <Link
-                        to="/dashboard/staff"
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#F7F4EF] text-[#8A9BB0] text-[12px] font-semibold rounded-xl no-underline hover:bg-[#EEF2F7] transition-all border border-black/[0.09]"
-                    >
-                        <ArrowLeft size={13} />Back to staff
-                    </Link>
+            <div className="flex flex-col items-center gap-5 text-white/60 p-10">
+                <div className="w-20 h-20 rounded-2xl bg-white/8 flex items-center justify-center">
+                    <FileText size={36} className="text-white/30" />
                 </div>
-            </div>
-        );
-    }
-
-    if (fetchError || !profile) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
-                <div className="text-center max-w-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-[#FAF0ED] flex items-center justify-center mx-auto mb-4">
-                        <XCircle size={24} className="text-[#E8927C]" />
-                    </div>
-                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Profile not found</p>
-                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This staff profile does not exist or you don't have access."}</p>
-                    <Link to="/dashboard/staff" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
-                        <ArrowLeft size={13} />Back to staff
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
-    if (saved) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
                 <div className="text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-[#E8F2EB] flex items-center justify-center mx-auto mb-4 animate-[popIn_0.3s_ease]">
-                        <style>{`@keyframes popIn{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}`}</style>
-                        <Check size={28} className="text-[#4A7C59]" />
-                    </div>
-                    <p className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] mb-1">Profile updated!</p>
-                    <p className="text-[13px] text-[#8A9BB0]">Redirecting back to staff…</p>
+                    <p className="text-[15px] font-semibold text-white/80 mb-1">{asset.file_original_name}</p>
+                    <p className="text-[12px] text-white/40 mb-4">PDF preview unavailable in this browser</p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => downloadAsset(asset)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#3a6448] transition-all"
+                    >
+                        <Download size={14} /> Download PDF
+                    </button>
+                    <button
+                        onClick={() => window.open(asset.file_url, "_blank")}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white/10 text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/15 transition-all"
+                    >
+                        <ExternalLink size={14} /> Open in browser
+                    </button>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
-            <div className="sticky top-0 z-20 bg-white border-b border-black/[0.09] px-6 py-4 flex items-center gap-4">
-                <Link to="/dashboard/staff"
-                    className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-xl text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline">
-                    <ArrowLeft size={15} />
-                </Link>
-                <div className="flex-1 min-w-0">
-                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Edit Staff Profile</h1>
-                    <p className="text-[11px] text-[#8A9BB0] mt-0.5 truncate">
-                        {profile.fname} {profile.lname} · <span className="font-semibold text-[#4A7C59]">{profile.role_name}</span>
-                        {profile.branch_name && <> · {profile.branch_name}</>}
-                        {profile.staff_id && <> · <span className="font-mono">{profile.staff_id}</span></>}
-                    </p>
-                </div>
-                <button onClick={handleSubmit} disabled={saving}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer font-['DM_Sans'] disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0">
-                    {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                    {saving ? "Saving…" : "Save changes"}
+        <div className="flex flex-col w-full h-full">
+            {mode === "embed" ? (
+                <embed
+                    src={`${asset.file_url}#toolbar=1&navpanes=1&scrollbar=1&view=FitH`}
+                    type="application/pdf"
+                    className="w-full flex-1 border-none"
+                    style={{
+                        minHeight: "72vh",
+                        maxWidth: fullscreen ? "100%" : "960px",
+                        margin: "0 auto",
+                        borderRadius: "12px",
+                    }}
+                    onError={() => setMode("object")}
+                />
+            ) : (
+                <object
+                    data={`${asset.file_url}#toolbar=1`}
+                    type="application/pdf"
+                    className="w-full flex-1 border-none"
+                    style={{
+                        minHeight: "72vh",
+                        maxWidth: fullscreen ? "100%" : "960px",
+                        margin: "0 auto",
+                        borderRadius: "12px",
+                    }}
+                    onError={() => setMode("fallback")}
+                >
+                    {/* inner fallback for browsers without PDF plugin */}
+                    <iframe
+                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(asset.file_url)}&embedded=true`}
+                        className="w-full border-none"
+                        style={{ minHeight: "72vh", borderRadius: "12px" }}
+                        onError={() => setMode("fallback")}
+                        title={asset.file_original_name}
+                    />
+                </object>
+            )}
+            <p className="text-[11px] text-white/25 text-center mt-2 flex-shrink-0">
+                Having trouble?{" "}
+                <button
+                    onClick={() => window.open(asset.file_url, "_blank")}
+                    className="text-white/45 underline bg-transparent border-none cursor-pointer"
+                >Open in new tab</button>
+                {" "}or{" "}
+                <button
+                    onClick={() => downloadAsset(asset)}
+                    className="text-white/45 underline bg-transparent border-none cursor-pointer"
+                >download</button>
+            </p>
+        </div>
+    );
+}
+
+/* ─── Generic File Fallback ───────────────────────────────── */
+function FileFallback({ asset }) {
+    return (
+        <div className="flex flex-col items-center gap-5 text-white/60 p-8 text-center">
+            <div className="w-24 h-24 rounded-2xl bg-white/8 flex items-center justify-center">
+                <File size={40} className="text-white/30" />
+            </div>
+            <div>
+                <p className="text-[16px] font-semibold text-white/80 mb-1">{asset.file_original_name}</p>
+                <p className="text-[13px] text-white/40">{asset.mime_type || asset.extension || "Unknown file type"}</p>
+                {asset.file_size && <p className="text-[12px] text-white/30 mt-1">{formatFileSize(asset.file_size)}</p>}
+            </div>
+            <div className="flex gap-2 flex-wrap justify-center">
+                <button
+                    onClick={() => downloadAsset(asset)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#3a6448] transition-all"
+                >
+                    <Download size={14} /> Download file
+                </button>
+                <button
+                    onClick={() => window.open(asset.file_url, "_blank")}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-white/10 text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/15 transition-all"
+                >
+                    <ExternalLink size={14} /> Open in browser
                 </button>
             </div>
-
-            <div className="max-w-[720px] mx-auto px-4 py-6 space-y-3">
-                <div className="bg-white rounded-2xl border border-black/[0.09] p-4 flex items-center gap-4 mb-2">
-                    <div
-                        className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-black/[0.09] cursor-pointer relative group"
-                        onClick={() => form.profile_photo_url && setShowPhotoViewer(true)}
-                    >
-                        {form.profile_photo_url ? (
-                            <>
-                                <img src={form.profile_photo_url} alt="" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Eye size={14} className="text-white" />
-                                </div>
-                            </>
-                        ) : (
-                            <div className="w-full h-full bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] text-[16px] font-bold">
-                                {initials(profile.fname, profile.lname)}
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-[#0D1117]">{profile.fname} {profile.lname}</p>
-                        <p className="text-[11px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
-                        {profile.staff_id && <p className="text-[10px] font-mono text-[#B8C0CC] mt-0.5">{profile.staff_id}</p>}
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${form.status === "active" ? "bg-[#E8F2EB] text-[#2F5C3A]" :
-                            form.status === "suspended" ? "bg-[#FBF6E9] text-[#8b6a1a]" :
-                                form.status === "terminated" ? "bg-[#FAF0ED] text-[#c05c3c]" :
-                                    "bg-[#EEF2F7] text-[#4a6580]"
-                            }`}>
-                            {form.status}
-                        </span>
-                    </div>
-                </div>
-
-                {error && (
-                    <div className="flex items-center gap-2.5 px-4 py-3 bg-[#FAF0ED] border border-[#E8927C]/30 rounded-xl text-[13px] text-[#c05c3c]">
-                        <AlertCircle size={15} className="flex-shrink-0" />{error}
-                    </div>
-                )}
-
-                <div id="section-personal">
-                    <SectionCard title="Personal Info" icon={User} active={activeSection === "personal"} completed={completedSections.has("personal")} onClick={() => setActiveSection("personal")}>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="Gender">
-                                <select className={inputCls} value={form.gender} onChange={set("gender")}>
-                                    <option value="">Select gender</option>
-                                    {GENDERS.map(g => <option key={g} value={g}>{g.charAt(0).toUpperCase() + g.slice(1)}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Date of Birth">
-                                <input type="date" className={inputCls} value={form.date_of_birth} onChange={set("date_of_birth")} />
-                            </Field>
-                            <Field label="Status">
-                                <select className={inputCls} value={form.status} onChange={set("status")}>
-                                    {STAFF_STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Profile Photo">
-                                <div className="flex items-center gap-2">
-                                    {form.profile_photo_url ? (
-                                        <div
-                                            className="w-10 h-10 rounded-xl overflow-hidden border border-black/[0.09] flex-shrink-0 cursor-pointer relative group"
-                                            onClick={() => setShowPhotoViewer(true)}
-                                        >
-                                            <img src={form.profile_photo_url} alt="Profile" className="w-full h-full object-cover" />
-                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Eye size={11} className="text-white" />
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="w-10 h-10 rounded-xl bg-[#F7F4EF] border border-black/[0.09] flex items-center justify-center flex-shrink-0">
-                                            <User size={16} className="text-[#8A9BB0]" />
-                                        </div>
-                                    )}
-                                    <button type="button" onClick={() => setShowFilePicker(true)}
-                                        className="flex-1 flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-semibold text-[#4A7C59] bg-[#E8F2EB] border border-[#4A7C59]/20 rounded-xl hover:bg-[#4A7C59] hover:text-white transition-all cursor-pointer font-['DM_Sans']">
-                                        <ImageIcon size={13} />
-                                        {form.profile_photo_url ? "Change photo" : "Select photo"}
-                                    </button>
-                                </div>
-                            </Field>
-                            <Field label="Change Role" span={2}>
-                                <div className="flex items-start gap-2">
-                                    <Shield size={13} className="text-[#8A9BB0] flex-shrink-0 mt-3" />
-                                    <div className="flex-1">
-                                        <select
-                                            className={inputCls}
-                                            value={form.new_role_id}
-                                            onChange={set("new_role_id")}
-                                            disabled={rolesLoading}
-                                        >
-                                            <option value="">Keep current role ({profile.role_name})</option>
-                                            {roles
-                                                .filter(r => String(r.id) !== String(profile.role_id) && r.name !== "Super Admin")
-                                                .map(r => (
-                                                    <option key={r.id} value={String(r.id)}>{r.name}</option>
-                                                ))
-                                            }
-                                        </select>
-                                        <p className="text-[10px] text-[#B8C0CC] mt-1.5">
-                                            Role hierarchy is enforced — you can only assign roles below your own.
-                                        </p>
-                                    </div>
-                                </div>
-                            </Field>
-                            <Field label="Departments" span={2}>
-                                <DepartmentSelect
-                                    clinicId={selectedClinic?.id}
-                                    branchId={selectedClinic?.branchId || profile?.branch_id}
-                                    selectedDepartments={selectedDepartments}
-                                    onChange={setSelectedDepartments}
-                                />
-                                {selectedDepartments.length > 0 && (
-                                    <div className="flex flex-wrap gap-1.5 mt-2">
-                                        {selectedDepartments.map(d => (
-                                            <span key={d.id} className="flex items-center gap-1 text-[11px] px-2 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg font-semibold">
-                                                {d.name}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedDepartments(prev => prev.filter(p => p.id !== d.id))}
-                                                    className="ml-0.5 bg-transparent border-none cursor-pointer text-[#4A7C59] hover:text-[#c05c3c] transition-colors p-0"
-                                                >
-                                                    <X size={10} />
-                                                </button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </Field>
-                        </div>
-                        <div className="mt-4 flex justify-end">
-                            <button onClick={() => handleSectionNext("personal", "contact")}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
-                                Next <ChevronRight size={13} />
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <div id="section-contact">
-                    <SectionCard title="Contact" icon={Phone} active={activeSection === "contact"} completed={completedSections.has("contact")} onClick={() => setActiveSection("contact")}>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="Phone"><input className={inputCls} placeholder="08012345678" value={form.phone} onChange={set("phone")} /></Field>
-                            <Field label="Alt. Phone"><input className={inputCls} placeholder="08012345678" value={form.alt_phone} onChange={set("alt_phone")} /></Field>
-                            <Field label="City"><input className={inputCls} placeholder="Lagos" value={form.city} onChange={set("city")} /></Field>
-                            <Field label="State"><input className={inputCls} placeholder="State" value={form.state_id} onChange={set("state_id")} /></Field>
-                            <Field label="Address" span={2}>
-                                <textarea className={inputCls + " resize-none h-20"} placeholder="Full address…" value={form.address} onChange={set("address")} />
-                            </Field>
-                        </div>
-                        <div className="mt-4 flex justify-between">
-                            <button onClick={() => setActiveSection("personal")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
-                            <button onClick={() => handleSectionNext("contact", "employment")}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
-                                Next <ChevronRight size={13} />
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <div id="section-employment">
-                    <SectionCard title="Employment" icon={Briefcase} active={activeSection === "employment"} completed={completedSections.has("employment")} onClick={() => setActiveSection("employment")}>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="Employment Type">
-                                <select className={inputCls} value={form.employment_type} onChange={set("employment_type")}>
-                                    {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Date Joined"><input type="date" className={inputCls} value={form.date_joined} onChange={set("date_joined")} /></Field>
-                            <Field label="Salary">
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A9BB0] text-[13px] font-semibold pointer-events-none">₦</span>
-                                    <input type="number" className={inputCls + " pl-7"} placeholder="0.00" value={form.salary} onChange={set("salary")} />
-                                </div>
-                            </Field>
-                            <Field label="Salary Frequency">
-                                <select className={inputCls} value={form.salary_frequency} onChange={set("salary_frequency")}>
-                                    {SALARY_FREQUENCIES.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Date Left (if applicable)" span={2}>
-                                <input type="date" className={inputCls} value={form.date_left} onChange={set("date_left")} />
-                            </Field>
-                        </div>
-                        <div className="mt-4 flex justify-between">
-                            <button onClick={() => setActiveSection("contact")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
-                            <button onClick={() => handleSectionNext("employment", "medical")}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
-                                Next <ChevronRight size={13} />
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <div id="section-medical">
-                    <SectionCard title="Professional" icon={HeartPulse} active={activeSection === "medical"} completed={completedSections.has("medical")} onClick={() => setActiveSection("medical")}>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="Specialization"><input className={inputCls} placeholder="e.g. Cardiology" value={form.specialization} onChange={set("specialization")} /></Field>
-                            <Field label="Qualification"><input className={inputCls} placeholder="e.g. MBBS, RN" value={form.qualification} onChange={set("qualification")} /></Field>
-                            <Field label="License Number"><input className={inputCls} placeholder="MDC-123456" value={form.license_number} onChange={set("license_number")} /></Field>
-                            <Field label="License Expiry"><input type="date" className={inputCls} value={form.license_expiry} onChange={set("license_expiry")} /></Field>
-                        </div>
-                        <div className="mt-4 flex justify-between">
-                            <button onClick={() => setActiveSection("employment")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
-                            <button onClick={() => handleSectionNext("medical", "emergency")}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
-                                Next <ChevronRight size={13} />
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <div id="section-emergency">
-                    <SectionCard title="Emergency Contact" icon={ShieldCheck} active={activeSection === "emergency"} completed={completedSections.has("emergency")} onClick={() => setActiveSection("emergency")}>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="Contact Name"><input className={inputCls} placeholder="Full name" value={form.emergency_contact_name} onChange={set("emergency_contact_name")} /></Field>
-                            <Field label="Relationship"><input className={inputCls} placeholder="e.g. Spouse, Parent" value={form.emergency_contact_relationship} onChange={set("emergency_contact_relationship")} /></Field>
-                            <Field label="Contact Phone" span={2}><input className={inputCls} placeholder="08012345678" value={form.emergency_contact_phone} onChange={set("emergency_contact_phone")} /></Field>
-                        </div>
-                        <div className="mt-4 flex justify-between">
-                            <button onClick={() => setActiveSection("medical")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
-                            <button onClick={() => handleSectionNext("emergency", "notes")}
-                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
-                                Next <ChevronRight size={13} />
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <div id="section-notes">
-                    <SectionCard title="Notes" icon={FileText} active={activeSection === "notes"} completed={completedSections.has("notes")} onClick={() => setActiveSection("notes")}>
-                        <Field label="Internal Notes">
-                            <textarea className={inputCls + " resize-none h-28"} placeholder="Any additional notes about this staff member…" value={form.notes} onChange={set("notes")} />
-                        </Field>
-                        <div className="mt-4 flex justify-between">
-                            <button onClick={() => setActiveSection("emergency")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
-                            <button onClick={() => { markComplete("notes"); handleSubmit(); }} disabled={saving}
-                                className="flex items-center gap-2 px-5 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans'] disabled:opacity-60">
-                                {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                                {saving ? "Saving…" : "Save changes"}
-                            </button>
-                        </div>
-                    </SectionCard>
-                </div>
-
-                <p className="text-center text-[11px] text-[#B8C0CC] py-2">
-                    Staff Profile #{staffId} · Role changes are enforced by hierarchy.
-                </p>
-            </div>
-
-            <FilePickerModal
-                isOpen={showFilePicker}
-                onClose={() => setShowFilePicker(false)}
-                clinicId={selectedClinic?.id}
-                allowedTypes={["image"]}
-                onSelectFile={(file) => {
-                    setForm(f => ({ ...f, profile_photo_url: file.file_url }));
-                    setShowFilePicker(false);
-                }}
-            />
-
-            {showPhotoViewer && form.profile_photo_url && (
-                <ImagePreview
-                    isOpen={showPhotoViewer}
-                    onClose={() => setShowPhotoViewer(false)}
-                    asset={{
-                        file_url: form.profile_photo_url,
-                        file_original_name: `${profile.fname} ${profile.lname}`,
-                        fname: profile.fname,
-                        lname: profile.lname,
-                    }}
-                />
-            )}
         </div>
     );
 }
 
-StaffView.jsx:
-import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import {
-    ArrowLeft, User, Phone, Briefcase, ShieldCheck,
-    FileText, Loader2, HeartPulse,
-    XCircle, Edit2, Mail, Calendar, Building2,
-    Hash, CreditCard, MapPin, Users, LayoutGrid,
-} from "lucide-react";
-import { useStaffStore, useClinicStore } from "../../store/store";
-import ImagePreview from "../ui/file-manager/ImagePreview";
-import { useAuth } from "../../context/Auth/UseAuth";
-
-function initials(fname, lname) {
-    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
-}
-
-function fmtDate(val) {
-    if (!val) return "—";
-    const d = new Date(val);
-    if (isNaN(d)) return "—";
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-}
-
-function StatusBadge({ status }) {
-    const map = {
-        active: "bg-[#E8F2EB] text-[#2F5C3A]",
-        suspended: "bg-[#FBF6E9] text-[#8b6a1a]",
-        terminated: "bg-[#FAF0ED] text-[#c05c3c]",
-        resigned: "bg-[#EEF2F7] text-[#4a6580]",
+/* ─── Copy URL Button ─────────────────────────────────────── */
+function CopyUrlButton({ url }) {
+    const [copied, setCopied] = useState(false);
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch { }
     };
     return (
-        <span className={`text-[11px] font-bold px-3 py-1.5 rounded-full ${map[status] || "bg-[#EEF2F7] text-[#4a6580]"}`}>
-            {status ? status.charAt(0).toUpperCase() + status.slice(1) : "—"}
-        </span>
+        <TBtn onClick={copy} title={copied ? "Copied!" : "Copy URL"} active={copied}>
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+        </TBtn>
     );
 }
 
-function InfoRow({ label, value, icon: Icon }) {
+/* ─── Download Progress Button ────────────────────────────── */
+function DownloadButton({ asset }) {
+    const [state, setState] = useState("idle"); // idle | downloading | done | error
+
+    const handle = async () => {
+        if (state === "downloading") return;
+        setState("downloading");
+        try {
+            await downloadAsset(asset);
+            setState("done");
+            setTimeout(() => setState("idle"), 2500);
+        } catch {
+            setState("error");
+            setTimeout(() => setState("idle"), 2500);
+        }
+    };
+
     return (
-        <div className="flex items-start gap-3 py-3 border-b border-black/[0.05] last:border-0">
-            {Icon && <Icon size={14} className="text-[#8A9BB0] mt-0.5 flex-shrink-0" />}
-            <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#B8C0CC] mb-0.5">{label}</p>
-                <p className="text-[13px] text-[#0D1117] font-medium break-words">{value || "—"}</p>
-            </div>
-        </div>
+        <TBtn
+            onClick={handle}
+            title={state === "downloading" ? "Downloading…" : state === "done" ? "Downloaded!" : state === "error" ? "Failed – retry" : "Download"}
+            active={state === "done"}
+        >
+            {state === "downloading" ? (
+                <RefreshCw size={13} className="animate-spin" />
+            ) : state === "done" ? (
+                <Check size={13} />
+            ) : (
+                <Download size={13} />
+            )}
+        </TBtn>
     );
 }
 
-function SectionCard({ title, icon: Icon, children }) {
-    return (
-        <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-black/[0.06]">
-                <div className="w-8 h-8 rounded-xl bg-[#E8F2EB] flex items-center justify-center flex-shrink-0">
-                    <Icon size={14} className="text-[#4A7C59]" />
-                </div>
-                <span className="text-[13px] font-semibold text-[#0D1117] font-['DM_Sans']">{title}</span>
-            </div>
-            <div className="px-5 py-2">{children}</div>
-        </div>
-    );
-}
+/* ─── Main Component ──────────────────────────────────────── */
+export default function ImagePreview({ isOpen, onClose, asset, assets = [], onNavigate }) {
+    const [zoom, setZoom] = useState(1);
+    const [rotation, setRotation] = useState(0);
+    const [flipH, setFlipH] = useState(false);
+    const [showDetails, setShowDetails] = useState(false);
+    const [fullscreen, setFullscreen] = useState(false);
+    const [dragging, setDragging] = useState(false);
+    const [offset, setOffset] = useState({ x: 0, y: 0 });
+    const [dragStart, setDragStart] = useState(null);
+    const [imgBg, setImgBg] = useState("dark"); // "dark" | "light" | "checker"
+    const [imgLoaded, setImgLoaded] = useState(false);
+    const [showThumbs, setShowThumbs] = useState(false);
+    const imgRef = useRef(null);
+    const containerRef = useRef(null);
 
-export default function StaffView() {
-    const { staffId } = useParams();
-    const navigate = useNavigate();
-    const { selectedClinic } = useClinicStore();
-    const { user } = useAuth();
-    const { getStaffProfileForEdit } = useStaffStore();
+    const currentIndex = assets.findIndex(a => a.id === asset?.id);
+    const hasPrev = currentIndex > 0;
+    const hasNext = currentIndex < assets.length - 1;
 
-    const [profile, setProfile] = useState(null);
-    const [fetchLoading, setFetchLoading] = useState(true);
-    const [fetchError, setFetchError] = useState(null);
-    const [showPhotoViewer, setShowPhotoViewer] = useState(false);
-
-    const currentUserId = user?.id;
-    const isOwnProfile = profile && currentUserId && String(profile.user_id) === String(currentUserId);
-
+    /* reset on asset change */
     useEffect(() => {
-        if (!staffId || !selectedClinic?.id) return;
-        setFetchLoading(true);
-        setFetchError(null);
-        getStaffProfileForEdit(selectedClinic.id, selectedClinic.branchId, staffId)
-            .then((data) => {
-                setProfile(data);
-                setFetchLoading(false);
-            })
-            .catch((err) => {
-                setFetchError(err?.response?.data?.message || err?.message || "Failed to load staff profile.");
-                setFetchLoading(false);
-            });
-    }, [staffId, selectedClinic?.id]);
+        if (isOpen) {
+            setZoom(1);
+            setRotation(0);
+            setFlipH(false);
+            setOffset({ x: 0, y: 0 });
+            setImgLoaded(false);
+        }
+    }, [asset?.id, isOpen]);
 
-    if (fetchLoading) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center">
-                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
-                    <Loader2 size={28} className="animate-spin" />
-                    <p className="text-[13px]">Loading staff profile…</p>
-                </div>
-            </div>
-        );
-    }
+    /* keyboard nav */
+    useEffect(() => {
+        const handleKey = (e) => {
+            if (!isOpen) return;
+            if (e.key === "Escape") { if (fullscreen) setFullscreen(false); else onClose(); }
+            if (e.key === "ArrowLeft" && hasPrev) onNavigate?.(assets[currentIndex - 1]);
+            if (e.key === "ArrowRight" && hasNext) onNavigate?.(assets[currentIndex + 1]);
+            if ((e.key === "+" || e.key === "=") && isImage(asset)) setZoom(z => Math.min(z + 0.25, 5));
+            if (e.key === "-" && isImage(asset)) setZoom(z => Math.max(z - 0.25, 0.1));
+            if (e.key === "0" && isImage(asset)) { setZoom(1); setOffset({ x: 0, y: 0 }); }
+            if (e.key === "r" && isImage(asset)) setRotation(r => r + 90);
+            if (e.key === "f") setFullscreen(f => !f);
+        };
+        document.addEventListener("keydown", handleKey);
+        return () => document.removeEventListener("keydown", handleKey);
+    }, [isOpen, hasPrev, hasNext, currentIndex, assets, asset, fullscreen]);
 
-    if (fetchError || !profile) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
-                <div className="text-center max-w-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-[#FAF0ED] flex items-center justify-center mx-auto mb-4">
-                        <XCircle size={24} className="text-[#E8927C]" />
-                    </div>
-                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Profile not found</p>
-                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This staff profile does not exist."}</p>
-                    <Link to="/dashboard/staff" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
-                        <ArrowLeft size={13} />Back to staff
-                    </Link>
-                </div>
-            </div>
-        );
-    }
+    /* drag handlers */
+    const handleMouseDown = (e) => {
+        if (zoom <= 1 || !isImage(asset)) return;
+        e.preventDefault();
+        setDragging(true);
+        setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+    };
+    const handleMouseMove = (e) => {
+        if (!dragging || !dragStart) return;
+        setOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    };
+    const handleMouseUp = () => { setDragging(false); setDragStart(null); };
+
+    /* scroll-to-zoom */
+    const handleWheel = (e) => {
+        if (!isImage(asset)) return;
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.12 : 0.12;
+        setZoom(z => Math.max(0.1, Math.min(5, z + delta)));
+    };
+
+    /* double-click to toggle fit/100% */
+    const handleDblClick = () => {
+        if (!isImage(asset)) return;
+        if (zoom !== 1) { setZoom(1); setOffset({ x: 0, y: 0 }); }
+        else setZoom(2);
+    };
+
+    /* print */
+    const handlePrint = useCallback(() => {
+        if (!asset?.file_url) return;
+        const w = window.open("", "_blank");
+        if (!w) return;
+        if (isImage(asset)) {
+            w.document.write(`<html><head><title>${asset.file_original_name || "Print"}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}img{max-width:100%;height:auto}</style></head><body><img src="${asset.file_url}" onload="window.print();window.close()"/></body></html>`);
+        } else {
+            w.location = asset.file_url;
+        }
+        w.document.close();
+    }, [asset]);
+
+    const bgStyle = {
+        dark: "bg-[#0a0c10]",
+        light: "bg-[#e8e8e8]",
+        checker: "",
+    };
+    const checkerStyle = imgBg === "checker" ? {
+        backgroundImage: "linear-gradient(45deg,#555 25%,transparent 25%),linear-gradient(-45deg,#555 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#555 75%),linear-gradient(-45deg,transparent 75%,#555 75%)",
+        backgroundSize: "20px 20px",
+        backgroundPosition: "0 0,0 10px,10px -10px,-10px 0",
+        backgroundColor: "#333",
+    } : {};
+
+    if (!isOpen || !asset) return null;
+
+    const assetIsImage = isImage(asset);
+    const assetIsPdf = isPdf(asset);
 
     return (
-        <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
-            <div className="sticky top-0 z-20 bg-white border-b border-black/[0.09] px-6 py-4 flex items-center gap-4">
-                <Link to="/dashboard/staff"
-                    className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-xl text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline">
-                    <ArrowLeft size={15} />
-                </Link>
-                <div className="flex-1 min-w-0">
-                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Staff Profile</h1>
-                    <p className="text-[11px] text-[#8A9BB0] mt-0.5 truncate">
-                        {profile.fname} {profile.lname} · <span className="font-semibold text-[#4A7C59]">{profile.role_name || "—"}</span>
-                        {profile.branch_name && <> · {profile.branch_name}</>}
-                    </p>
-                </div>
-                {!isOwnProfile && (
-                    <Link
-                        to={`/dashboard/staff/edit/${staffId}`}
-                        className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all no-underline flex-shrink-0"
-                    >
-                        <Edit2 size={13} />Edit Profile
-                    </Link>
-                )}
-            </div>
+        <div
+            className={`fixed inset-0 z-[300] flex ${fullscreen ? "bg-black" : "bg-[#05070d]/92 backdrop-blur-xl"}`}
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+            <style>{`
+                @keyframes previewIn { from { opacity:0; transform:scale(0.97) } to { opacity:1; transform:scale(1) } }
+                .preview-animate { animation: previewIn 0.16s cubic-bezier(.22,1,.36,1); }
+                @keyframes thumbIn { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+                .thumb-animate { animation: thumbIn 0.2s cubic-bezier(.22,1,.36,1); }
+                .img-no-drag { -webkit-user-drag:none; user-drag:none; pointer-events:none; user-select:none; }
+                ::-webkit-scrollbar { width:5px; height:5px; }
+                ::-webkit-scrollbar-track { background:transparent; }
+                ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:3px; }
+            `}</style>
 
-            <div className="max-w-[720px] mx-auto px-4 py-6 space-y-4">
-                <div className="bg-white rounded-2xl border border-black/[0.09] p-5">
-                    <div className="flex items-start gap-4">
-                        <div
-                            className="w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 border border-black/[0.09] cursor-pointer relative group"
-                            onClick={() => profile.profile_photo_url && setShowPhotoViewer(true)}
-                        >
-                            {profile.profile_photo_url ? (
-                                <>
-                                    <img src={profile.profile_photo_url} alt="" className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <User size={16} className="text-white" />
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="w-full h-full bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] text-[20px] font-bold font-['DM_Serif_Display']">
-                                    {initials(profile.fname, profile.lname)}
-                                </div>
+            <div className="relative flex flex-col flex-1 overflow-hidden preview-animate">
+
+                {/* ── Top Bar ── */}
+                <div className={`flex items-center justify-between px-3 py-2.5 flex-shrink-0 z-20 ${fullscreen ? "bg-black/60 backdrop-blur-sm" : "bg-[#0d1117]/70 backdrop-blur-md border-b border-white/[0.07]"}`}>
+                    {/* left: close + name */}
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <TBtn onClick={onClose} title="Close (Esc)" danger>
+                            <X size={14} />
+                        </TBtn>
+                        <div className="min-w-0">
+                            <p className="text-[12.5px] font-semibold text-white truncate leading-tight max-w-[240px]">
+                                {asset.file_original_name}
+                            </p>
+                            {assets.length > 1 && (
+                                <p className="text-[10px] text-white/35 leading-tight">{currentIndex + 1} / {assets.length}</p>
                             )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2 flex-wrap">
-                                <div>
-                                    <h2 className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] leading-tight">
-                                        {profile.fname} {profile.lname}
-                                    </h2>
-                                    <p className="text-[13px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
-                                </div>
-                                <StatusBadge status={profile.status} />
-                            </div>
-                            <div className="flex flex-wrap gap-2 mt-3">
-                                {profile.role_name && (
-                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg">
-                                        <ShieldCheck size={11} />{profile.role_name}
-                                    </span>
-                                )}
-                                {profile.staff_id && (
-                                    <span className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 bg-[#F7F4EF] text-[#8A9BB0] rounded-lg">
-                                        <Hash size={11} />{profile.staff_id}
-                                    </span>
-                                )}
-                                {profile.branch_name && (
-                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#EEF2F7] text-[#4a6580] rounded-lg">
-                                        <Building2 size={11} />{profile.branch_name}
-                                    </span>
-                                )}
-                                {profile.employment_type && (
-                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#FBF6E9] text-[#8b6a1a] rounded-lg">
-                                        <Briefcase size={11} />{profile.employment_type.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}
-                                    </span>
-                                )}
-                                {Array.isArray(profile.departments) && profile.departments.filter(Boolean).map(d => (
-                                    <span key={d.id} className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#F0EBF8] text-[#6b3fa0] rounded-lg">
-                                        <LayoutGrid size={11} />{d.name}
-                                    </span>
-                                ))}
-                            </div>
+                    </div>
+
+                    {/* center: image controls */}
+                    {assetIsImage && (
+                        <div className="flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
+                            <TBtn onClick={() => setZoom(z => Math.max(0.1, z - 0.25))} title="Zoom out (-)"><ZoomOut size={13} /></TBtn>
+                            <button
+                                onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}
+                                className="px-2 h-8 text-[11px] font-bold text-white/70 bg-white/8 rounded-lg hover:bg-white/15 hover:text-white transition-all border-none cursor-pointer min-w-[46px]"
+                                title="Reset zoom (0)"
+                            >
+                                {Math.round(zoom * 100)}%
+                            </button>
+                            <TBtn onClick={() => setZoom(z => Math.min(5, z + 0.25))} title="Zoom in (+)"><ZoomIn size={13} /></TBtn>
+                            <div className="w-px h-4 bg-white/15 mx-0.5" />
+                            <TBtn onClick={() => setRotation(r => r + 90)} title="Rotate 90° (R)"><RotateCw size={13} /></TBtn>
+                            <TBtn onClick={() => setFlipH(f => !f)} title="Flip horizontal" active={flipH}><FlipHorizontal size={13} /></TBtn>
+                            <div className="w-px h-4 bg-white/15 mx-0.5" />
+                            {/* bg switcher */}
+                            <TBtn onClick={() => setImgBg(b => b === "dark" ? "light" : b === "light" ? "checker" : "dark")} title={`Background: ${imgBg}`}>
+                                {imgBg === "dark" ? <Moon size={13} /> : imgBg === "light" ? <Sun size={13} /> : <Grid size={13} />}
+                            </TBtn>
                         </div>
+                    )}
+
+                    {/* right: actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                        {assets.length > 1 && (
+                            <TBtn onClick={() => setShowThumbs(t => !t)} title="Filmstrip" active={showThumbs}>
+                                <Grid size={13} />
+                            </TBtn>
+                        )}
+                        <TBtn onClick={() => setShowDetails(s => !s)} title="File details (I)" active={showDetails}>
+                            <Info size={13} />
+                        </TBtn>
+                        {asset.file_url && <CopyUrlButton url={asset.file_url} />}
+                        <DownloadButton asset={asset} />
+                        {(assetIsPdf || !assetIsImage) && (
+                            <TBtn onClick={() => window.open(asset.file_url, "_blank")} title="Open in new tab">
+                                <ExternalLink size={13} />
+                            </TBtn>
+                        )}
+                        <TBtn onClick={handlePrint} title="Print">
+                            <Printer size={13} />
+                        </TBtn>
+                        <div className="w-px h-4 bg-white/15 mx-0.5" />
+                        <TBtn onClick={() => setFullscreen(f => !f)} title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}>
+                            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                        </TBtn>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <SectionCard title="Personal Info" icon={User}>
-                        <InfoRow label="Gender" value={profile.gender ? profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1) : null} icon={User} />
-                        <InfoRow label="Date of Birth" value={fmtDate(profile.date_of_birth)} icon={Calendar} />
-                        <InfoRow label="Specialization" value={profile.specialization} icon={HeartPulse} />
-                        <InfoRow label="Qualification" value={profile.qualification} icon={FileText} />
-                    </SectionCard>
+                <div className="flex flex-1 overflow-hidden">
+                    {/* ── Main Stage ── */}
+                    <div
+                        ref={containerRef}
+                        className={`flex-1 flex flex-col items-center justify-center overflow-hidden relative ${assetIsImage ? bgStyle[imgBg] : "bg-[#0a0c10]"}`}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        onWheel={handleWheel}
+                        onDoubleClick={handleDblClick}
+                        style={{
+                            cursor: assetIsImage && zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
+                            ...(assetIsImage ? checkerStyle : {}),
+                        }}
+                    >
+                        {/* Prev button */}
+                        {hasPrev && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onNavigate?.(assets[currentIndex - 1]); }}
+                                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-[#4A7C59]/70 hover:scale-105 transition-all border-none cursor-pointer shadow-lg"
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                        )}
 
-                    <SectionCard title="Contact" icon={Phone}>
-                        <InfoRow label="Phone" value={profile.phone} icon={Phone} />
-                        <InfoRow label="Alt. Phone" value={profile.alt_phone} icon={Phone} />
-                        <InfoRow label="Email" value={profile.email} icon={Mail} />
-                        <InfoRow label="City" value={profile.city} icon={MapPin} />
-                        <InfoRow label="Address" value={profile.address} icon={MapPin} />
-                    </SectionCard>
+                        {/* Image */}
+                        {assetIsImage ? (
+                            <div
+                                ref={imgRef}
+                                className="select-none"
+                                style={{
+                                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom}) rotate(${rotation}deg) scaleX(${flipH ? -1 : 1})`,
+                                    transition: dragging ? "none" : "transform 0.12s ease",
+                                    transformOrigin: "center center",
+                                    willChange: "transform",
+                                }}
+                            >
+                                {!imgLoaded && (
+                                    <div className="w-40 h-40 flex items-center justify-center">
+                                        <div className="w-6 h-6 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                                    </div>
+                                )}
+                                <img
+                                    src={asset.file_url}
+                                    alt={asset.file_original_name}
+                                    className={`img-no-drag max-w-[82vw] max-h-[76vh] object-contain rounded-md shadow-2xl ${imgLoaded ? "opacity-100" : "opacity-0"}`}
+                                    style={{ transition: "opacity 0.2s ease" }}
+                                    onLoad={() => setImgLoaded(true)}
+                                    onContextMenu={(e) => e.preventDefault()}
+                                    draggable={false}
+                                />
+                            </div>
+                        ) : assetIsPdf ? (
+                            <div className="flex flex-col flex-1 w-full items-center px-3 pt-3 pb-2 overflow-auto">
+                                <PdfViewer asset={asset} fullscreen={fullscreen} />
+                            </div>
+                        ) : (
+                            <FileFallback asset={asset} />
+                        )}
 
-                    <SectionCard title="Employment" icon={Briefcase}>
-                        <InfoRow label="Date Joined" value={fmtDate(profile.date_joined)} icon={Calendar} />
-                        <InfoRow label="Date Left" value={fmtDate(profile.date_left)} icon={Calendar} />
-                        <InfoRow label="Employment Type" value={profile.employment_type?.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())} icon={Briefcase} />
-                        <InfoRow label="Salary Frequency" value={profile.salary_frequency ? profile.salary_frequency.charAt(0).toUpperCase() + profile.salary_frequency.slice(1) : null} icon={CreditCard} />
-                        <InfoRow label="Salary" value={profile.salary ? `₦${Number(profile.salary).toLocaleString()}` : null} icon={CreditCard} />
-                    </SectionCard>
+                        {/* Next button */}
+                        {hasNext && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onNavigate?.(assets[currentIndex + 1]); }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-[#4A7C59]/70 hover:scale-105 transition-all border-none cursor-pointer shadow-lg"
+                            >
+                                <ChevronRight size={18} />
+                            </button>
+                        )}
 
-                    <SectionCard title="Professional" icon={HeartPulse}>
-                        <InfoRow label="License Number" value={profile.license_number} icon={Hash} />
-                        <InfoRow label="License Expiry" value={fmtDate(profile.license_expiry)} icon={Calendar} />
-                        <InfoRow label="Qualification" value={profile.qualification} icon={FileText} />
-                    </SectionCard>
+                        {/* Zoom hint */}
+                        {assetIsImage && zoom === 1 && imgLoaded && (
+                            <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-white/20 select-none pointer-events-none">
+                                scroll to zoom · drag to pan · double-click to 2×
+                            </p>
+                        )}
+                    </div>
 
-                    <SectionCard title="Emergency Contact" icon={ShieldCheck}>
-                        <InfoRow label="Name" value={profile.emergency_contact_name} icon={User} />
-                        <InfoRow label="Relationship" value={profile.emergency_contact_relationship} icon={Users} />
-                        <InfoRow label="Phone" value={profile.emergency_contact_phone} icon={Phone} />
-                    </SectionCard>
+                    {/* ── Details Panel ── */}
+                    {showDetails && (
+                        <div className="w-[272px] flex-shrink-0 bg-[#0d1117]/95 backdrop-blur-xl border-l border-white/[0.07] overflow-y-auto">
+                            <div className="p-4">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/30 mb-4">File Details</p>
 
-                    {Array.isArray(profile.departments) && profile.departments.filter(Boolean).length > 0 && (
-                        <SectionCard title="Departments" icon={LayoutGrid}>
-                            <div className="py-3 flex flex-wrap gap-2">
-                                {profile.departments.filter(Boolean).map(d => (
-                                    <span
-                                        key={d.id}
-                                        className="flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 bg-[#F0EBF8] text-[#6b3fa0] rounded-xl border border-[#6b3fa0]/10"
+                                {assetIsImage && (
+                                    <div className="mb-4 rounded-xl overflow-hidden border border-white/[0.08] bg-black/30">
+                                        <img src={asset.file_url} alt="" className="w-full object-cover max-h-36 img-no-drag" onContextMenu={e => e.preventDefault()} draggable={false} />
+                                    </div>
+                                )}
+                                {assetIsPdf && (
+                                    <div className="mb-4 rounded-xl overflow-hidden border border-white/[0.08] bg-white/4 flex items-center justify-center h-20">
+                                        <FileText size={28} className="text-white/20" />
+                                    </div>
+                                )}
+
+                                <div className="flex flex-col gap-2">
+                                    {[
+                                        { icon: <FileType size={12} />, label: "File name", val: asset.file_original_name },
+                                        { icon: <HardDrive size={12} />, label: "File size", val: formatFileSize(asset.file_size) },
+                                        { icon: <FileType size={12} />, label: "Type", val: asset.mime_type || asset.extension || "—" },
+                                        { icon: <User size={12} />, label: "Uploaded by", val: asset.fname ? `${asset.fname} ${asset.lname || ""}`.trim() : "—" },
+                                        { icon: <Calendar size={12} />, label: "Uploaded on", val: fmtDateTime(asset.created_at) },
+                                    ].map(({ icon, label, val }) => (
+                                        <div key={label} className="p-2.5 bg-white/[0.04] rounded-lg border border-white/[0.06]">
+                                            <div className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.07em] text-white/25 mb-1">
+                                                {icon}{label}
+                                            </div>
+                                            <p className="text-[11.5px] text-white/75 break-all leading-snug">{val}</p>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* keyboard shortcuts */}
+                                <div className="mt-5">
+                                    <p className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-white/20 mb-2">Keyboard Shortcuts</p>
+                                    <div className="flex flex-col gap-1">
+                                        {[
+                                            ["←  →", "Navigate"],
+                                            ["+  −", "Zoom"],
+                                            ["0", "Reset zoom"],
+                                            ["R", "Rotate"],
+                                            ["F", "Fullscreen"],
+                                            ["Esc", "Close"],
+                                        ].map(([key, desc]) => (
+                                            <div key={key} className="flex items-center justify-between">
+                                                <code className="text-[10px] text-white/30 bg-white/8 px-1.5 py-0.5 rounded font-mono">{key}</code>
+                                                <span className="text-[10px] text-white/30">{desc}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2 mt-4">
+                                    <DownloadButton asset={asset} />
+                                    <button
+                                        onClick={() => window.open(asset.file_url, "_blank")}
+                                        className="w-full flex items-center justify-center gap-2 py-2 bg-white/8 text-white/70 text-[11.5px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/12 hover:text-white transition-all"
                                     >
-                                        <LayoutGrid size={11} />{d.name}
-                                    </span>
-                                ))}
+                                        <ExternalLink size={12} /> Open in browser
+                                    </button>
+                                </div>
                             </div>
-                        </SectionCard>
-                    )}
-
-                    {profile.notes && (
-                        <SectionCard title="Notes" icon={FileText}>
-                            <div className="py-3">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#B8C0CC] mb-1.5">Internal Notes</p>
-                                <p className="text-[13px] text-[#0D1117] whitespace-pre-wrap">{profile.notes}</p>
-                            </div>
-                        </SectionCard>
+                        </div>
                     )}
                 </div>
 
-                <p className="text-center text-[11px] text-[#B8C0CC] py-2">
-                    Staff Profile #{staffId}
-                </p>
+                {/* ── Filmstrip Thumbnails ── */}
+                {showThumbs && assets.length > 1 && (
+                    <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-t border-white/[0.06] px-3 py-2 overflow-x-auto thumb-animate">
+                        <div className="flex gap-2 items-center" style={{ width: "max-content" }}>
+                            {assets.map((a, i) => (
+                                <button
+                                    key={a.id}
+                                    onClick={() => onNavigate?.(a)}
+                                    className={`relative w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all cursor-pointer bg-white/8 ${a.id === asset.id ? "border-[#4A7C59] shadow-[0_0_0_1px_#4A7C59]" : "border-transparent hover:border-white/30"}`}
+                                    title={a.file_original_name}
+                                >
+                                    {isImage(a) ? (
+                                        <img src={a.file_url} alt="" className="w-full h-full object-cover img-no-drag" draggable={false} onContextMenu={e => e.preventDefault()} />
+                                    ) : isPdf(a) ? (
+                                        <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-white/30" /></div>
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center"><File size={20} className="text-white/30" /></div>
+                                    )}
+                                    {a.id === asset.id && (
+                                        <div className="absolute inset-0 bg-[#4A7C59]/15 pointer-events-none" />
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+
+assetStore.js:
+import { create } from "zustand";
+import axiosInstance from "../../api/axiosInstance";
+
+export const useAssetStore = create((set, get) => ({
+  assets: [],
+  loading: false,
+  error: null,
+  pagination: {
+    currentPage: 1,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false,
+    perPage: 20,
+    lastPage: 1,
+  },
+
+  fetchAssets: async (clinicId, page = 1, params = {}) => {
+    set({ loading: true, error: null });
+    try {
+      const query = new URLSearchParams({ page, limit: 20, ...params });
+      const response = await axiosInstance.get(
+        `/assets/${clinicId}/assets?${query}`,
+      );
+      const data = response.data?.data;
+      set({
+        assets: data?.assets || [],
+        pagination: {
+          currentPage: data?.pagination?.page || page,
+          total: data?.pagination?.total || 0,
+          totalPages: data?.pagination?.totalPages || 1,
+          hasNext: data?.pagination?.hasNext || false,
+          hasPrev: data?.pagination?.hasPrev || false,
+          perPage: data?.pagination?.limit || 20,
+          lastPage: data?.pagination?.totalPages || 1,
+        },
+        loading: false,
+      });
+      return data?.assets || [];
+    } catch (error) {
+      set({
+        error:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to fetch assets",
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  uploadAsset: async (clinicId, payload) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axiosInstance.post(
+        `/assets/${clinicId}/assets/upload`,
+        payload,
+      );
+      const asset = response.data?.data?.asset;
+      set((state) => ({
+        assets: [asset, ...state.assets],
+        loading: false,
+      }));
+      return asset;
+    } catch (error) {
+      set({
+        error:
+          error?.response?.data?.message || error?.message || "Upload failed",
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteAsset: async (clinicId, assetId) => {
+    try {
+      await axiosInstance.delete(`/assets/${clinicId}/assets/${assetId}`);
+      set((state) => ({
+        assets: state.assets.filter((a) => a.id !== assetId),
+      }));
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  transferAsset: async (clinicId, assetId, receiverId, message) => {
+    try {
+      const response = await axiosInstance.post(
+        `/assets/${clinicId}/assets/${assetId}/transfer`,
+        {
+          receiver_id: receiverId,
+          message,
+        },
+      );
+      return response.data?.data?.transfer;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  getMyTransfers: async () => {
+    try {
+      const response = await axiosInstance.get(`/assets/my-transfers`);
+      return response.data?.data?.transfers || [];
+    } catch (error) {
+      throw error;
+    }
+  },
+}));
+
+
+asset.model.js:
+const { db_connection } = require("../config/config.inc");
+
+const Asset = {
+  create: async ({ clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at }) => {
+    try {
+      const [result] = await db_connection.execute(
+        `INSERT INTO clinic_assets (clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error("Error in Asset.create:", error);
+      return null;
+    }
+  },
+
+  findById: async (id) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
+         FROM clinic_assets ca
+         LEFT JOIN users u ON u.id = ca.user_id
+         WHERE ca.id = ? AND ca.deleted_at IS NULL
+         LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    } catch (error) {
+      console.error("Error in Asset.findById:", error);
+      return null;
+    }
+  },
+
+  findByClinic: async ({ clinicId, page = 1, limit = 20, search = null, mimeType = null }) => {
+    try {
+      const offset = (page - 1) * limit;
+      const params = [clinicId];
+      const conditions = ["ca.clinic_id = ?", "ca.deleted_at IS NULL"];
+
+      if (search) {
+        conditions.push("ca.file_original_name LIKE ?");
+        params.push(`%${search}%`);
+      }
+      if (mimeType) {
+        conditions.push("ca.mime_type LIKE ?");
+        params.push(`${mimeType}%`);
+      }
+
+      const where = conditions.join(" AND ");
+      const countParams = [...params];
+
+      const [[{ total }]] = await db_connection.execute(
+        `SELECT COUNT(*) AS total FROM clinic_assets ca WHERE ${where}`,
+        countParams
+      );
+
+      if (total === 0) return { assets: [], total: 0 };
+
+      const dataParams = [...params, limit, offset];
+      const [rows] = await db_connection.execute(
+        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
+         FROM clinic_assets ca
+         LEFT JOIN users u ON u.id = ca.user_id
+         WHERE ${where}
+         ORDER BY ca.created_at DESC
+         LIMIT ? OFFSET ?`,
+        dataParams
+      );
+
+      return { assets: rows, total };
+    } catch (error) {
+      console.error("Error in Asset.findByClinic:", error);
+      return { assets: [], total: 0 };
+    }
+  },
+
+  delete: async (id, clinicId) => {
+    try {
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const [result] = await db_connection.execute(
+        `UPDATE clinic_assets SET deleted_at = ? WHERE id = ? AND clinic_id = ?`,
+        [nowUtc, id, clinicId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Error in Asset.delete:", error);
+      return false;
+    }
+  },
+
+  findTransfersByAsset: async (assetId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*, 
+          s.fname AS sender_fname, s.lname AS sender_lname,
+          r.fname AS receiver_fname, r.lname AS receiver_lname, r.email AS receiver_email
+         FROM asset_transfers ft
+         LEFT JOIN users s ON s.id = ft.sender_id
+         LEFT JOIN users r ON r.id = ft.receiver_id
+         WHERE ft.asset_id = ?
+         ORDER BY ft.created_at DESC`,
+        [assetId]
+      );
+      return rows;
+    } catch (error) {
+      console.error("Error in Asset.findTransfersByAsset:", error);
+      return [];
+    }
+  },
+
+  createTransfer: async ({ asset_id, sender_id, receiver_id, message, created_at }) => {
+    try {
+      const [result] = await db_connection.execute(
+        `INSERT INTO asset_transfers (asset_id, sender_id, receiver_id, message, status, created_at)
+         VALUES (?, ?, ?, ?, 'sent', ?)`,
+        [asset_id, sender_id, receiver_id, message || null, created_at]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error("Error in Asset.createTransfer:", error);
+      return null;
+    }
+  },
+
+  findTransferById: async (transferId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*,
+          ca.file_url, ca.file_original_name, ca.mime_type,
+          s.fname AS sender_fname, s.lname AS sender_lname,
+          r.fname AS receiver_fname, r.lname AS receiver_lname
+         FROM asset_transfers ft
+         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
+         LEFT JOIN users s ON s.id = ft.sender_id
+         LEFT JOIN users r ON r.id = ft.receiver_id
+         WHERE ft.id = ?
+         LIMIT 1`,
+        [transferId]
+      );
+      return rows[0] || null;
+    } catch (error) {
+      console.error("Error in Asset.findTransferById:", error);
+      return null;
+    }
+  },
+
+  updateTransferStatus: async (transferId, status) => {
+    try {
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const [result] = await db_connection.execute(
+        `UPDATE asset_transfers SET status = ?, received_at = ? WHERE id = ?`,
+        [status, nowUtc, transferId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Error in Asset.updateTransferStatus:", error);
+      return false;
+    }
+  },
+
+  findTransfersByReceiver: async (userId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*,
+          ca.file_url, ca.file_original_name, ca.mime_type, ca.file_size,
+          s.fname AS sender_fname, s.lname AS sender_lname
+         FROM asset_transfers ft
+         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
+         LEFT JOIN users s ON s.id = ft.sender_id
+         WHERE ft.receiver_id = ?
+         ORDER BY ft.created_at DESC`,
+        [userId]
+      );
+      return rows;
+    } catch (error) {
+      console.error("Error in Asset.findTransfersByReceiver:", error);
+      return [];
+    }
+  },
+};
+
+module.exports = Asset;
+
+
+asset.route.js:
+const express = require("express");
+const router = express.Router({ mergeParams: true });
+const validateTokenHandler = require("../middleware/validateTokenHandler");
+const {
+  uploadClinicAsset,
+  getClinicAssets,
+  deleteClinicAsset,
+  transferAsset,
+  getAssetTransfers,
+  updateTransferStatus,
+  getMyTransfers,
+} = require("../controllers/asset.controller");
+const { checkRolePermission } = require("../middleware/rolePermission");
+
+router.get(
+  "/:clinicId/assets",
+  validateTokenHandler,
+  getClinicAssets
+);
+
+router.post(
+  "/:clinicId/assets/upload",
+  validateTokenHandler,
+  uploadClinicAsset
+);
+
+router.delete(
+  "/:clinicId/assets/:assetId",
+  validateTokenHandler,
+  deleteClinicAsset
+);
+
+router.post(
+  "/:clinicId/assets/:assetId/transfer",
+  validateTokenHandler,
+  transferAsset
+);
+
+router.get(
+  "/:clinicId/assets/:assetId/transfers",
+  validateTokenHandler,
+  getAssetTransfers
+);
+
+router.patch(
+  "/:clinicId/assets/transfers/:transferId/status",
+  validateTokenHandler,
+  updateTransferStatus
+);
+
+router.get(
+  "/my-transfers",
+  validateTokenHandler,
+  getMyTransfers
+);
+
+module.exports = router;
+
+asset.controller.js:
+const asyncHandler = require("express-async-handler");
+const { responseHandler } = require("../middleware/responseHandler.js");
+const Asset = require("../models/asset.model.js");
+const axios = require("axios");
+const { v4: uuidv4 } = require("uuid");
+const { file_config } = require("../config/config.inc.js");
+
+const uploadClinicAsset = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const { file, filename, filetype, file_size, file_original_name } = req.body;
+
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated");
+  }
+
+  if (!file) {
+    res.status(400);
+    throw new Error("No file uploaded");
+  }
+
+  try {
+    const response = await axios.post(
+      "https://projectapi.tixora.com.ng/fileflow/files/api/upload",
+      {
+        image: file,
+        folderName: `medicore/clinic_${clinicId}` || "general",
+        fileName: file_original_name,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${file_config.apiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.data || !response.data.data) {
+      throw new Error("Invalid response from file upload service");
+    }
+
+    const uploadData = response.data.data;
+    const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    const assetId = await Asset.create({
+      clinic_id: clinicId,
+      user_id: userId,
+      file_uuid: uploadData.uuid || uuidv4(),
+      file_original_name: uploadData.file_original_name || file_original_name,
+      file_url: uploadData.file_url,
+      file_name: uploadData.file_name || filename,
+      file_size: uploadData.file_size || file_size,
+      mime_type: uploadData.type || filetype,
+      extension: uploadData.extension,
+      created_at: nowUtc,
+    });
+
+    if (!assetId) {
+      res.status(500);
+      throw new Error("Failed to save asset");
+    }
+
+    const asset = await Asset.findById(assetId);
+
+    res.status(201);
+    responseHandler(res, { asset }, "File uploaded successfully");
+  } catch (error) {
+    res.status(500);
+    throw new Error(`File upload failed: ${error.message}`);
+  }
+});
+
+const getClinicAssets = asyncHandler(async function (req, res) {
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const search = req.query.search?.trim() || null;
+  const mimeType = req.query.mime_type || null;
+
+  const { assets, total } = await Asset.findByClinic({
+    clinicId,
+    page,
+    limit,
+    search,
+    mimeType,
+  });
+  const totalPages = Math.ceil(total / limit);
+
+  res.status(200);
+  responseHandler(res, {
+    assets,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    },
+  });
+});
+
+const deleteClinicAsset = asyncHandler(async function (req, res) {
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const assetId = parseInt(req.params.assetId, 10);
+
+  const deleted = await Asset.delete(assetId, clinicId);
+
+  if (!deleted) {
+    res.status(404);
+    throw new Error("Asset not found or already deleted");
+  }
+
+  res.status(200);
+  responseHandler(res, { message: "Asset deleted successfully" });
+});
+
+const transferAsset = asyncHandler(async function (req, res) {
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const assetId = parseInt(req.params.assetId, 10);
+  const senderId = req.user?.id;
+  const { receiver_id, message } = req.body;
+
+  if (!receiver_id) {
+    res.status(400);
+    throw new Error("Receiver ID is required");
+  }
+
+  const asset = await Asset.findById(assetId);
+  if (!asset || asset.clinic_id !== clinicId) {
+    res.status(404);
+    throw new Error("Asset not found");
+  }
+
+  const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+  const transferId = await Asset.createTransfer({
+    asset_id: assetId,
+    sender_id: senderId,
+    receiver_id,
+    message,
+    created_at: nowUtc,
+  });
+
+  if (!transferId) {
+    res.status(500);
+    throw new Error("Failed to create transfer");
+  }
+
+  const transfer = await Asset.findTransferById(transferId);
+
+  res.status(201);
+  responseHandler(res, { transfer }, "File transferred successfully");
+});
+
+const getAssetTransfers = asyncHandler(async function (req, res) {
+  const assetId = parseInt(req.params.assetId, 10);
+  const transfers = await Asset.findTransfersByAsset(assetId);
+  res.status(200);
+  responseHandler(res, { transfers });
+});
+
+const updateTransferStatus = asyncHandler(async function (req, res) {
+  const transferId = parseInt(req.params.transferId, 10);
+  const { status } = req.body;
+
+  if (!["received", "declined"].includes(status)) {
+    res.status(400);
+    throw new Error("Status must be 'received' or 'declined'");
+  }
+
+  const updated = await Asset.updateTransferStatus(transferId, status);
+  if (!updated) {
+    res.status(404);
+    throw new Error("Transfer not found");
+  }
+
+  res.status(200);
+  responseHandler(res, { message: "Transfer status updated" });
+});
+
+const getMyTransfers = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const transfers = await Asset.findTransfersByReceiver(userId);
+  res.status(200);
+  responseHandler(res, { transfers });
+});
+
+module.exports = {
+  uploadClinicAsset,
+  getClinicAssets,
+  deleteClinicAsset,
+  transferAsset,
+  getAssetTransfers,
+  updateTransferStatus,
+  getMyTransfers,
+};
+
+
+MediaLibrary.jsx:
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+    Upload, Trash2, Search, Image as ImageIcon, File, Loader2, Send,
+    X, Eye, MoreVertical, Download, RefreshCw, HardDrive, Calendar,
+    User, CheckCircle2, AlertCircle, Filter, Grid3X3, List, Inbox,
+} from "lucide-react";
+import { useClinicStore, useAssetStore } from "../store/store";
+import { fileToBase64 } from "../utils/fileToBase64";
+import ImagePreview from "../components/ui/file-manager/ImagePreview";
+
+const DEMO_USERS = [
+    { id: 1, fname: "Adaeze", lname: "Obi", email: "adaeze.obi@gracehealth.ng", role: "Doctor" },
+    { id: 2, fname: "Bello", lname: "Adeyemi", email: "bello.adeyemi@gracehealth.ng", role: "Nurse" },
+    { id: 3, fname: "Chioma", lname: "Eze", email: "chioma.eze@gracehealth.ng", role: "Pharmacist" },
+    { id: 4, fname: "Emeka", lname: "Nwachukwu", email: "emeka.nwachukwu@gracehealth.ng", role: "Admin" },
+    { id: 5, fname: "Funke", lname: "Fashola", email: "funke.fashola@gracehealth.ng", role: "Receptionist" },
+    { id: 6, fname: "Grace", lname: "Lawal", email: "grace.lawal@gracehealth.ng", role: "Lab Technician" },
+];
+
+function fmtDate(d) {
+    if (!d) return "—";
+    const dt = typeof d === "string" ? new Date(d) : d;
+    if (isNaN(dt)) return "—";
+    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()}`;
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return "—";
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function initials(fname, lname) {
+    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
+}
+
+const AV_COLORS = ["#4A7C59", "#E8927C", "#C9A84C", "#8A9BB0", "#6A3D85", "#2563EB", "#15803D", "#c97058"];
+
+function TransferModal({ asset, onClose, clinicId, onTransferred }) {
+    const { transferAsset } = useAssetStore();
+    const [search, setSearch] = useState("");
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [message, setMessage] = useState("");
+    const [sending, setSending] = useState(false);
+    const [sent, setSent] = useState(false);
+    const [error, setError] = useState(null);
+
+    const filtered = DEMO_USERS.filter(u =>
+        `${u.fname} ${u.lname} ${u.email}`.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const handleSend = async () => {
+        if (!selectedUser) return;
+        setSending(true);
+        setError(null);
+        try {
+            await transferAsset(clinicId, asset.id, selectedUser.id, message);
+            setSent(true);
+            setTimeout(() => { onTransferred?.(); onClose(); }, 1800);
+        } catch (err) {
+            setError(err?.response?.data?.message || err?.message || "Transfer failed");
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-[#0D1117]/60 backdrop-blur-sm z-[250] flex items-center justify-center p-5"
+            onClick={e => e.target === e.currentTarget && onClose()}>
+            <div className="bg-white rounded-2xl w-full max-w-[420px] shadow-[0_24px_80px_rgba(13,17,23,0.25)] animate-[modalIn_0.22s_ease]">
+                <style>{`@keyframes modalIn{from{opacity:0;transform:scale(0.95) translateY(8px)}to{opacity:1;transform:none}}`}</style>
+                <div className="p-5 pb-0 flex items-center justify-between">
+                    <div>
+                        <h2 className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117]">Transfer File</h2>
+                        <p className="text-[12px] text-[#8A9BB0] mt-0.5 truncate max-w-[280px]">{asset.file_original_name}</p>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 bg-[#F7F4EF] rounded-lg flex items-center justify-center text-[#8A9BB0] hover:bg-[#FAF0ED] hover:text-[#E8927C] transition-all border-none cursor-pointer">
+                        <X size={15} />
+                    </button>
+                </div>
+
+                {sent ? (
+                    <div className="p-5 py-10 text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-[#E8F2EB] flex items-center justify-center mx-auto mb-3">
+                            <CheckCircle2 size={22} className="text-[#4A7C59]" />
+                        </div>
+                        <p className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] mb-1">Transferred!</p>
+                        <p className="text-[12px] text-[#8A9BB0]">File sent to {selectedUser.fname} {selectedUser.lname}</p>
+                    </div>
+                ) : (
+                    <div className="p-5 pt-4">
+                        <div className="mb-3">
+                            <label className="block text-[10px] font-bold uppercase tracking-[0.07em] text-[#0D1117] mb-1.5">Select recipient</label>
+                            <div className="relative mb-2">
+                                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+                                <input
+                                    type="text"
+                                    placeholder="Search staff…"
+                                    value={search}
+                                    onChange={e => setSearch(e.target.value)}
+                                    className="w-full pl-7 pr-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-xl outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto rounded-xl border border-black/[0.09] bg-[#F7F4EF]/40">
+                                {filtered.map((u, i) => (
+                                    <button
+                                        key={u.id}
+                                        onClick={() => setSelectedUser(u)}
+                                        className={`flex items-center gap-2.5 px-3 py-2.5 text-left transition-all border-none cursor-pointer font-['DM_Sans'] ${selectedUser?.id === u.id ? "bg-[#E8F2EB]" : "bg-transparent hover:bg-[#F7F4EF]"} ${i < filtered.length - 1 ? "border-b border-black/[0.05]" : ""}`}
+                                    >
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0" style={{ background: AV_COLORS[i % AV_COLORS.length] }}>
+                                            {initials(u.fname, u.lname)}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[13px] font-semibold text-[#0D1117] truncate">{u.fname} {u.lname}</p>
+                                            <p className="text-[11px] text-[#8A9BB0]">{u.role}</p>
+                                        </div>
+                                        {selectedUser?.id === u.id && <CheckCircle2 size={14} className="text-[#4A7C59] flex-shrink-0" />}
+                                    </button>
+                                ))}
+                                {filtered.length === 0 && <p className="text-center py-6 text-[12px] text-[#8A9BB0]">No staff found</p>}
+                            </div>
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-[10px] font-bold uppercase tracking-[0.07em] text-[#0D1117] mb-1.5">Message (optional)</label>
+                            <textarea
+                                value={message}
+                                onChange={e => setMessage(e.target.value)}
+                                placeholder="Add a note…"
+                                rows={2}
+                                className="w-full px-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-xl outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all resize-none"
+                            />
+                        </div>
+
+                        {error && (
+                            <div className="mb-3 px-3 py-2 bg-[#FAF0ED] border border-[#E8927C]/30 rounded-xl text-[12px] text-[#c05c3c] flex items-center gap-2">
+                                <AlertCircle size={13} />{error}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2.5">
+                            <button onClick={onClose} className="flex-1 py-2.5 bg-[#F7F4EF] border border-black/[0.09] rounded-xl text-[12px] font-semibold text-[#8A9BB0] cursor-pointer hover:bg-[#EEF2F7] transition-all font-['DM_Sans']">
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSend}
+                                disabled={!selectedUser || sending}
+                                className="flex-[2] py-2.5 bg-[#4A7C59] rounded-xl text-[12px] font-semibold text-white cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans'] border-none flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {sending ? <><Loader2 size={13} className="animate-spin" />Sending…</> : <><Send size={13} />Send file</>}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AssetRowMenu({ asset, onDelete, onTransfer, onPreview }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+        if (open) document.addEventListener("mousedown", handle);
+        return () => document.removeEventListener("mousedown", handle);
+    }, [open]);
+
+    return (
+        <div className="relative" ref={ref}>
+            <button
+                onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all border-none bg-transparent cursor-pointer"
+            >
+                <MoreVertical size={14} />
+            </button>
+            {open && (
+                <div className="absolute right-0 top-8 z-50 bg-white border border-black/[0.09] rounded-xl shadow-[0_8px_32px_rgba(13,17,23,0.14)] min-w-[160px] overflow-hidden animate-[menuIn_0.14s_ease]">
+                    <style>{`@keyframes menuIn{from{opacity:0;transform:scale(0.96) translateY(-4px)}to{opacity:1;transform:none}}`}</style>
+                    <button onClick={() => { setOpen(false); onPreview(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer bg-transparent border-none text-left">
+                        <Eye size={13} className="text-[#8A9BB0]" />Preview
+                    </button>
+                    <button onClick={() => { setOpen(false); onTransfer(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#0D1117] hover:bg-[#F7F4EF] transition-colors cursor-pointer bg-transparent border-none text-left">
+                        <Send size={13} className="text-[#8A9BB0]" />Transfer
+                    </button>
+                    <div className="h-px bg-black/[0.06] mx-2" />
+                    <button onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] font-medium text-[#c05c3c] hover:bg-[#FAF0ED] transition-colors cursor-pointer bg-transparent border-none text-left">
+                        <Trash2 size={13} />Delete
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default function MediaLibrary() {
+    const { selectedClinic } = useClinicStore();
+    const { assets, loading, error, pagination, fetchAssets, uploadAsset, deleteAsset } = useAssetStore();
+
+    const [search, setSearch] = useState("");
+    const [viewMode, setViewMode] = useState("grid");
+    const [uploading, setUploading] = useState(false);
+    const [previewAsset, setPreviewAsset] = useState(null);
+    const [transferAssetData, setTransferAssetData] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [uploadSuccess, setUploadSuccess] = useState(false);
+    const [mimeFilter, setMimeFilter] = useState("all");
+
+    const clinicId = selectedClinic?.id;
+
+    useEffect(() => {
+        if (clinicId) fetchAssets(clinicId, 1);
+    }, [clinicId]);
+
+    const handleUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !clinicId) return;
+        setUploading(true);
+        try {
+            const base64Data = await fileToBase64(file);
+            await uploadAsset(clinicId, {
+                file: base64Data,
+                filename: file.name,
+                filetype: file.type,
+                file_size: file.size,
+                file_original_name: file.name,
+            });
+            setUploadSuccess(true);
+            setTimeout(() => setUploadSuccess(false), 3000);
+        } catch {
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleDelete = useCallback(async (asset) => {
+        if (!window.confirm(`Delete "${asset.file_original_name}"?`)) return;
+        await deleteAsset(clinicId, asset.id);
+    }, [clinicId]);
+
+    const handlePageChange = (page) => {
+        setCurrentPage(page);
+        fetchAssets(clinicId, page);
+    };
+
+    const handleDownload = async (asset) => {
+        try {
+            const res = await fetch(asset.file_url);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = asset.file_original_name || "download";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch {
+            window.open(asset.file_url, "_blank");
+        }
+    };
+
+    const filtered = useMemo(() => {
+        return assets.filter(a => {
+            const matchSearch = !search || a.file_original_name?.toLowerCase().includes(search.toLowerCase());
+            const matchMime = mimeFilter === "all"
+                || (mimeFilter === "image" && a.mime_type?.startsWith("image/"))
+                || (mimeFilter === "other" && !a.mime_type?.startsWith("image/"));
+            return matchSearch && matchMime;
+        });
+    }, [assets, search, mimeFilter]);
+
+    const MIME_FILTERS = [
+        { val: "all", label: "All" },
+        { val: "image", label: "Images" },
+        { val: "other", label: "Other" },
+    ];
+
+    return (
+        <div className="h-screen overflow-hidden font-['DM_Sans'] bg-[#F7F4EF] text-[#0D1117] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-black/[0.09] flex-shrink-0">
+                <div>
+                    <h1 className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] leading-tight">Media Library</h1>
+                    <p className="text-[12px] text-[#8A9BB0] mt-0.5">
+                        {pagination.total} file{pagination.total !== 1 ? "s" : ""} · {selectedClinic?.name || "Clinic"}
+                    </p>
+                </div>
+                <label className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] hover:shadow-[0_4px_14px_rgba(47,92,58,0.25)] transition-all cursor-pointer font-['DM_Sans']">
+                    {uploading ? <><Loader2 size={13} className="animate-spin" />Uploading…</> : <><Upload size={13} />Upload file</>}
+                    <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} accept="image/*,application/pdf,.doc,.docx" />
+                </label>
             </div>
 
-            {showPhotoViewer && profile.profile_photo_url && (
+            {uploadSuccess && (
+                <div className="mx-5 mt-3 flex items-center gap-2 px-3.5 py-2.5 bg-[#E8F2EB] border border-[#4A7C59]/20 rounded-xl text-[12px] font-medium text-[#2F5C3A]">
+                    <CheckCircle2 size={14} />File uploaded successfully.
+                </div>
+            )}
+
+            <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-black/[0.09] bg-white flex-shrink-0">
+                <div className="relative w-52">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+                    <input
+                        type="text"
+                        placeholder="Search files…"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full pl-7 pr-2.5 py-1.5 text-[12px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-lg outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all"
+                    />
+                </div>
+
+                <div className="flex gap-1">
+                    {MIME_FILTERS.map(f => (
+                        <button key={f.val} onClick={() => setMimeFilter(f.val)}
+                            className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-['DM_Sans'] ${mimeFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
+                            {f.label}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="ml-auto flex items-center gap-1.5">
+                    <button onClick={() => setViewMode("grid")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "grid" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
+                        <Grid3X3 size={13} />
+                    </button>
+                    <button onClick={() => setViewMode("list")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "list" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
+                        <List size={13} />
+                    </button>
+                    <button onClick={() => fetchAssets(clinicId, currentPage)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-black/[0.09] text-[#8A9BB0] hover:border-[#4A7C59] hover:text-[#4A7C59] transition-all cursor-pointer bg-transparent">
+                        <RefreshCw size={13} />
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+                {loading && assets.length === 0 ? (
+                    <div className="flex items-center justify-center h-64">
+                        <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
+                            <Loader2 size={24} className="animate-spin" />
+                            <p className="text-[13px]">Loading media…</p>
+                        </div>
+                    </div>
+                ) : error ? (
+                    <div className="flex items-center justify-center h-64">
+                        <div className="text-center text-[#c05c3c]">
+                            <AlertCircle size={32} className="mx-auto opacity-60 mb-2" />
+                            <p className="text-[13px]">{error}</p>
+                        </div>
+                    </div>
+                ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-[#8A9BB0]">
+                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-black/[0.07]">
+                            <ImageIcon size={24} className="opacity-40" />
+                        </div>
+                        <p className="text-[15px] font-semibold text-[#0D1117] mb-1">No files found</p>
+                        <p className="text-[12px]">{search ? "Try a different search" : "Upload your first file to get started"}</p>
+                    </div>
+                ) : viewMode === "grid" ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                        {filtered.map(asset => {
+                            const isImage = asset.mime_type?.startsWith("image/");
+                            return (
+                                <div key={asset.id} className="group relative bg-white rounded-2xl border border-black/[0.09] overflow-hidden hover:border-[#4A7C59]/40 hover:shadow-[0_4px_16px_rgba(74,124,89,0.1)] transition-all cursor-pointer"
+                                    onClick={() => setPreviewAsset(asset)}>
+                                    <div className="aspect-square bg-[#F7F4EF] flex items-center justify-center">
+                                        {isImage ? (
+                                            <img src={asset.file_url} alt={asset.file_original_name} className="w-full h-full object-cover" loading="lazy" />
+                                        ) : (
+                                            <File size={28} className="text-[#8A9BB0]" />
+                                        )}
+                                    </div>
+                                    <div className="p-2.5">
+                                        <p className="text-[11px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
+                                        <p className="text-[10px] text-[#8A9BB0] mt-0.5">{formatFileSize(asset.file_size)}</p>
+                                    </div>
+                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                        <AssetRowMenu
+                                            asset={asset}
+                                            onDelete={() => handleDelete(asset)}
+                                            onTransfer={() => setTransferAssetData(asset)}
+                                            onPreview={() => setPreviewAsset(asset)}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
+                        <div className="grid px-4 py-2.5 border-b border-black/[0.05] bg-[#F7F4EF]/60"
+                            style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}>
+                            {["", "Name", "Type", "Size", "Uploaded", ""].map((h, i) => (
+                                <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0]">{h}</span>
+                            ))}
+                        </div>
+                        {filtered.map(asset => {
+                            const isImage = asset.mime_type?.startsWith("image/");
+                            return (
+                                <div key={asset.id}
+                                    className="grid items-center px-4 py-3 border-b border-black/[0.05] hover:bg-[#F7F4EF]/60 transition-colors cursor-pointer"
+                                    style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}
+                                    onClick={() => setPreviewAsset(asset)}
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-[#F7F4EF] flex items-center justify-center flex-shrink-0 overflow-hidden border border-black/[0.07]">
+                                        {isImage ? (
+                                            <img src={asset.file_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                        ) : (
+                                            <File size={14} className="text-[#8A9BB0]" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 pl-2">
+                                        <p className="text-[13px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
+                                        <p className="text-[11px] text-[#8A9BB0]">by {asset.fname || "—"} {asset.lname || ""}</p>
+                                    </div>
+                                    <p className="text-[11px] text-[#8A9BB0] truncate">{asset.extension || asset.mime_type?.split("/")[1] || "—"}</p>
+                                    <p className="text-[12px] text-[#8A9BB0]">{formatFileSize(asset.file_size)}</p>
+                                    <p className="text-[12px] text-[#8A9BB0]">{fmtDate(asset.created_at)}</p>
+                                    <div onClick={e => e.stopPropagation()}>
+                                        <AssetRowMenu
+                                            asset={asset}
+                                            onDelete={() => handleDelete(asset)}
+                                            onTransfer={() => setTransferAssetData(asset)}
+                                            onPreview={() => setPreviewAsset(asset)}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {pagination.totalPages > 1 && (
+                    <div className="mt-6 flex items-center justify-center gap-2">
+                        {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(page => (
+                            <button key={page} onClick={() => handlePageChange(page)}
+                                className={`w-8 h-8 text-[12px] font-semibold rounded-lg border transition-all cursor-pointer font-['DM_Sans'] ${currentPage === page ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-white text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
+                                {page}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {previewAsset && (
                 <ImagePreview
-                    isOpen={showPhotoViewer}
-                    onClose={() => setShowPhotoViewer(false)}
-                    asset={{
-                        file_url: profile.profile_photo_url,
-                        file_original_name: `${profile.fname} ${profile.lname}`,
-                        mime_type: "image/jpeg",
-                        fname: profile.fname,
-                        lname: profile.lname,
-                    }}
+                    isOpen={!!previewAsset}
+                    onClose={() => setPreviewAsset(null)}
+                    asset={previewAsset}
+                    assets={filtered}
+                    onNavigate={setPreviewAsset}
+                />
+            )}
+
+            {transferAssetData && (
+                <TransferModal
+                    asset={transferAssetData}
+                    clinicId={clinicId}
+                    onClose={() => setTransferAssetData(null)}
+                    onTransferred={() => fetchAssets(clinicId, currentPage)}
                 />
             )}
         </div>
     );
 }
 
-StaffTable.jsx:
-import EmptyState from "./EmptyState";
-import { Plus, Building2, Settings, Users, Loader2 } from "lucide-react"
-import Avatar from "./Avatar";
-import { Link } from "react-router-dom";
-import StaffRowMenu from "./StaffRowMenu";
+db:
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  fname VARCHAR(100) NULL,
+  lname VARCHAR(100) NULL,
+  email VARCHAR(190) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  email_verified_at DATETIME NULL,
+  last_login_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_users_email (email),
+  INDEX idx_users_is_active (is_active),
+  INDEX idx_users_verified (email_verified_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-const STATUS_COLORS = {
-    active: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-    suspended: "bg-amber-50  text-amber-700  border border-amber-200",
-    terminated: "bg-red-50    text-red-700    border border-red-200",
-    resigned: "bg-slate-100 text-slate-600  border border-slate-200",
-};
+-- User sessions table
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  session_id CHAR(36) NOT NULL UNIQUE,
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(512) NULL,
+  device_label VARCHAR(120) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_sessions_user (user_id),
+  INDEX idx_sessions_revoked (revoked_at),
+  INDEX idx_sessions_last_seen (last_seen_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Refresh tokens table
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  session_id CHAR(36) NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_at DATETIME NULL,
+  replaced_by_token_hash CHAR(64) NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES user_sessions(session_id) ON DELETE CASCADE,
+  INDEX idx_refresh_user (user_id),
+  INDEX idx_refresh_session (session_id),
+  INDEX idx_refresh_expires (expires_at),
+  INDEX idx_refresh_revoked (revoked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Email tokens table
+CREATE TABLE IF NOT EXISTS email_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(190) NOT NULL,
+  user_id BIGINT UNSIGNED DEFAULT NULL,
+  type VARCHAR(100) NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  is_used TINYINT(1) NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  used_at DATETIME NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_email_tokens_user (user_id),
+  INDEX idx_email_tokens_type (type),
+  INDEX idx_email_tokens_used (is_used),
+  INDEX idx_email_tokens_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-export default function StaffTable({ staff, loading, pagination, currentUserId, onPageChange, onPhotoClick, onInvite }) {
+-- Login attempts table
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(190) NULL,
+  ip_address VARCHAR(45) NULL,
+  success TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_attempts_email (email),
+  INDEX idx_attempts_ip (ip_address),
+  INDEX idx_attempts_time (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    if (loading && staff.length === 0)
-        return <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-[#8A9BB0]" /></div>;
+-- States table
+CREATE TABLE IF NOT EXISTS states (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  code VARCHAR(10) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    if (!loading && staff.length === 0)
-        return (
-            <EmptyState
-                icon={Users} title="No staff found"
-                desc="No staff profiles match your search or have been set up yet."
-                action={
-                    <button onClick={onInvite}
-                        className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer">
-                        <Plus size={13} /> Invite staff
-                    </button>
-                }
-            />
-        );
+-- Roles table
+CREATE TABLE IF NOT EXISTS roles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (parent_id) REFERENCES roles(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_role_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    return (
-        <>
-            <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
-                {/* overflow-x-auto enables horizontal scroll on small screens */}
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[620px] border-collapse">
-                        <thead>
-                            <tr className="border-b border-black/[0.06]">
-                                {["", "Name", "Role", "Branch", "Status", ""].map((h, i) => (
-                                    <th key={i}
-                                        className="text-left text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] px-4 py-3 whitespace-nowrap font-['DM_Sans'] first:pl-5 last:pr-5">
-                                        {h}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {staff.map((member) => {
-                                const isYou = member.user_id === currentUserId;
-                                return (
-                                    <tr key={member.staff_profile_id || member.user_id}
-                                        className="border-b border-black/[0.04] hover:bg-[#FAFAF8] transition-colors last:border-b-0">
+-- Permissions table
+CREATE TABLE IF NOT EXISTS permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-                                        {/* Avatar */}
-                                        <td className="pl-5 pr-3 py-3.5 w-10">
-                                            <Avatar
-                                                fname={member.fname} lname={member.lname}
-                                                photoUrl={member.profile_photo_url} size={10}
-                                                onClick={member.profile_photo_url ? () => onPhotoClick(member) : undefined}
-                                            />
-                                        </td>
+-- User roles table
+CREATE TABLE IF NOT EXISTS user_roles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_user_role (user_id, role_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-                                        {/* Name + email */}
-                                        <td className="px-4 py-3.5 min-w-[180px] max-w-[240px]">
-                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                <span className="text-[13px] font-semibold text-[#0D1117]">
-                                                    {member.fname} {member.lname}
-                                                </span>
-                                                {isYou && (
-                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#4A7C59] text-white leading-none">
-                                                        you
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-[11px] text-[#8A9BB0] truncate">{member.email}</p>
-                                            {member.staff_id && <p className="text-[10px] text-[#B8C0CC] font-mono">{member.staff_id}</p>}
-                                        </td>
+-- Role permissions table
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  role_id BIGINT UNSIGNED NOT NULL,
+  permission_id BIGINT UNSIGNED NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_role_permission (role_id, permission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-                                        {/* Role */}
-                                        <td className="px-4 py-3.5 whitespace-nowrap">
-                                            <span className="text-[11px] font-semibold text-[#4a6580] bg-[#EEF2F7] px-2.5 py-1 rounded-full">
-                                                {member.role_name || "—"}
-                                            </span>
-                                        </td>
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  price_monthly DECIMAL(10,2) NULL,
+  price_yearly DECIMAL(10,2) NULL,
+  max_users INT NULL,
+  max_branches INT NULL,
+  max_storage_mb INT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (parent_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
+  INDEX idx_subscriptions_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-                                        {/* Branch */}
-                                        <td className="px-4 py-3.5 whitespace-nowrap">
-                                            <div className="flex items-center gap-1 text-[11px] text-[#8A9BB0]">
-                                                <Building2 size={11} className="flex-shrink-0" />
-                                                {member.branch_name || "—"}
-                                            </div>
-                                        </td>
-
-                                        {/* Status */}
-                                        <td className="px-4 py-3.5 whitespace-nowrap">
-                                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${STATUS_COLORS[member.staff_status] || "bg-[#EEF2F7] text-[#4a6580]"
-                                                }`}>
-                                                {member.staff_status || "active"}
-                                            </span>
-                                        </td>
-
-                                        {/* Actions */}
-                                        <td className="pr-5 pl-2 py-3.5 whitespace-nowrap">
-                                            <div className="flex items-center gap-1.5">
-                                                {member.staff_profile_id && !isYou && (
-                                                    <Link
-                                                        to={`/dashboard/staff/edit/${member.staff_profile_id}`}
-                                                        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline"
-                                                    >
-                                                        <Settings size={13} />
-                                                    </Link>
-                                                )}
-                                                <StaffRowMenu member={member} isYou={isYou} />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {pagination?.totalPages > 1 && <PaginationBar pagination={pagination} onPageChange={onPageChange} />}
-        </>
-    );
-}
-
-StaffRowMenu.jsx:
-import { Link } from "react-router-dom";
-import DropdownMenu from "./DropdownMenu";
-import { Settings, MoreVertical, Eye } from "lucide-react";
-
-export default function StaffRowMenu({ member, isYou }) {
-    if (isYou) return null;
-    return (
-        <DropdownMenu
-            trigger={(handleOpen) => (
-                <button onClick={handleOpen} className="icon-btn">
-                    <MoreVertical size={14} />
-                </button>
-            )}
-        >
-            {member.staff_profile_id && (
-                <Link to={`/dashboard/staff/edit/${member.staff_profile_id}`} className="menu-item">
-                    <Settings size={13} className="text-[#8A9BB0]" /> Edit profile
-                </Link>
-            )}
-            {member.staff_profile_id && (
-                <Link to={`/dashboard/staff/view/${member.staff_profile_id}`} className="menu-item">
-                    <Eye size={13} className="text-[#8A9BB0]" /> View details
-                </Link>
-            )}
-        </DropdownMenu>
-    );
-}
+CREATE TABLE IF NOT EXISTS subscription_permissions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  subscription_id BIGINT UNSIGNED NOT NULL,
+  permission_id BIGINT UNSIGNED NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_subscription_permission (subscription_id, permission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-prompt:
-this is not syncing well,
+CREATE TABLE IF NOT EXISTS clinics (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  name VARCHAR(200) NOT NULL,
+  email VARCHAR(190) NULL,
+  phone VARCHAR(50) NULL,
+  address TEXT NULL,
+  city VARCHAR(190) NULL,
+  state_id BIGINT UNSIGNED NULL,
+  owner_id BIGINT UNSIGNED NOT NULL,
+  subscription_id BIGINT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
+  INDEX idx_clinics_subscription (subscription_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-the Role hierarchy  is not working well
-and how can someone that has a role like branch manager etc be editing there own data why? only owner is allowed
-and also if i swich branch it is not fetching the new data....
+CREATE TABLE IF NOT EXISTS clinic_subscriptions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  subscription_id BIGINT UNSIGNED NOT NULL,
+  start_date DATETIME NOT NULL,
+  end_date DATETIME NULL,
+  price_paid DECIMAL(10,2) NULL,
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+  INDEX idx_clinic_subs_clinic (clinic_id),
+  INDEX idx_clinic_subs_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Branches table
+CREATE TABLE IF NOT EXISTS branches (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  address TEXT NULL,
+  phone VARCHAR(50) NULL,
+  city  VARCHAR(150) DEFAULT NULL,
+  state_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS branch_users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  branch_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_branch_user (branch_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS staff_profiles (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+  clinic_id BIGINT UNSIGNED NULL,
+
+  staff_id VARCHAR(50) NULL UNIQUE,
+
+  phone VARCHAR(50) NULL,
+  alt_phone VARCHAR(50) NULL,
+  gender ENUM('male','female','other') NULL,
+  date_of_birth DATE NULL,
+  profile_photo_url VARCHAR(512) NULL,
+
+  address TEXT NULL,
+  city VARCHAR(150) NULL,
+  state_id BIGINT UNSIGNED NULL,
+
+  date_joined DATE NULL,
+  date_left DATE NULL,
+
+  employment_type ENUM('full_time','part_time','contract','locum') NULL,
+  status ENUM('active','suspended','terminated','resigned') DEFAULT 'active',
+
+  salary DECIMAL(12,2) NULL,
+  salary_frequency ENUM('monthly','weekly','daily','hourly') DEFAULT 'monthly',
+
+  specialization VARCHAR(150) NULL,
+  license_number VARCHAR(100) NULL,
+  license_expiry DATE NULL,
+  qualification VARCHAR(255) NULL,
+
+  emergency_contact_name VARCHAR(150) NULL,
+  emergency_contact_phone VARCHAR(50) NULL,
+  emergency_contact_relationship VARCHAR(80) NULL,
+
+  notes TEXT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
+
+  INDEX idx_staff_status (status),
+  INDEX idx_staff_specialization (specialization)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-give me full code of it fixed
+CREATE TABLE IF NOT EXISTS branch_user_invites (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  branch_id BIGINT UNSIGNED NOT NULL,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+
+  email VARCHAR(190) NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+
+  invited_by BIGINT UNSIGNED NOT NULL,
+
+  token CHAR(64) NOT NULL UNIQUE,
+
+  status ENUM('pending','accepted','declined','expired') DEFAULT 'pending',
+
+  expires_at DATETIME NOT NULL,
+  accepted_at DATETIME NULL, 
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE,
+
+  INDEX idx_invite_email (email),
+  INDEX idx_invite_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS departments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+
+  branch_id BIGINT UNSIGNED NOT NULL,
+
+  name VARCHAR(150) NOT NULL,
+  description TEXT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+
+  UNIQUE KEY uq_branch_department (branch_id, name),
+
+  INDEX idx_department_branch (branch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS staff_departments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  staff_profile_id BIGINT UNSIGNED NOT NULL,
+  department_id BIGINT UNSIGNED NOT NULL,
+
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (staff_profile_id) REFERENCES staff_profiles(id) ON DELETE CASCADE,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+
+  UNIQUE KEY uq_staff_department (staff_profile_id, department_id),
+
+  INDEX idx_staff_department_staff (staff_profile_id),
+  INDEX idx_staff_department_department (department_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clinic_assets (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  file_uuid CHAR(36) NOT NULL UNIQUE,
+  file_original_name VARCHAR(255) NULL,
+  file_name VARCHAR(255) NULL,
+  file_url VARCHAR(512) NOT NULL,
+  file_size BIGINT UNSIGNED NULL,
+  mime_type VARCHAR(120) NULL,
+  extension VARCHAR(20) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_clinic_assets_clinic (clinic_id),
+  INDEX idx_clinic_assets_user (user_id),
+  INDEX idx_clinic_assets_deleted (deleted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS asset_transfers (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  asset_id BIGINT UNSIGNED NOT NULL,
+  sender_id BIGINT UNSIGNED NOT NULL,
+  receiver_id BIGINT UNSIGNED NOT NULL,
+  message VARCHAR(500) NULL,
+  status ENUM('sent','received','declined') DEFAULT 'sent',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  received_at DATETIME NULL,
+  FOREIGN KEY (asset_id) REFERENCES clinic_assets(id) ON DELETE CASCADE,
+  FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_transfer_sender (sender_id),
+  INDEX idx_transfer_receiver (receiver_id),
+  INDEX idx_transfer_asset (asset_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+problem:
+help me do this thing, the download should be from the backend:
+assets/${asset.id}/download`
+
+use the zustand
+
+give me full code without comments

@@ -199,7 +199,7 @@ function AssetRowMenu({ asset, onDelete, onTransfer, onPreview }) {
 
 export default function MediaLibrary() {
     const { selectedClinic } = useClinicStore();
-    const { assets, loading, error, pagination, fetchAssets, uploadAsset, deleteAsset } = useAssetStore();
+    const { assets, loading, error, pagination, fetchAssets, uploadAsset, deleteAsset, downloadAsset } = useAssetStore();
 
     const [search, setSearch] = useState("");
     const [viewMode, setViewMode] = useState("grid");
@@ -247,22 +247,11 @@ export default function MediaLibrary() {
         fetchAssets(clinicId, page);
     };
 
-    const handleDownload = async (asset) => {
-        try {
-            const res = await fetch(asset.file_url);
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = asset.file_original_name || "download";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch {
-            window.open(asset.file_url, "_blank");
-        }
-    };
+    const handleDownload = useCallback(async (asset) => {
+        await downloadAsset(clinicId, asset.id, asset.file_original_name);
+    }, [clinicId]);
+
+
 
     const filtered = useMemo(() => {
         return assets.filter(a => {
@@ -451,6 +440,7 @@ export default function MediaLibrary() {
                     asset={previewAsset}
                     assets={filtered}
                     onNavigate={setPreviewAsset}
+                    clinicId={clinicId}
                 />
             )}
 
