@@ -17,12 +17,12 @@ const GENDERS = ["male", "female", "other"];
 const SALARY_FREQUENCIES = ["monthly", "weekly", "daily", "hourly"];
 const STAFF_STATUSES = ["active", "suspended", "terminated", "resigned"];
 const SECTIONS = [
-    { id: "personal",   label: "Personal Info",    icon: User },
-    { id: "contact",    label: "Contact",           icon: Phone },
-    { id: "employment", label: "Employment",        icon: Briefcase },
-    { id: "medical",    label: "Professional",      icon: HeartPulse },
-    { id: "emergency",  label: "Emergency Contact", icon: ShieldCheck },
-    { id: "notes",      label: "Notes",             icon: FileText },
+    { id: "personal", label: "Personal Info", icon: User },
+    { id: "contact", label: "Contact", icon: Phone },
+    { id: "employment", label: "Employment", icon: Briefcase },
+    { id: "medical", label: "Professional", icon: HeartPulse },
+    { id: "emergency", label: "Emergency Contact", icon: ShieldCheck },
+    { id: "notes", label: "Notes", icon: FileText },
 ];
 
 const inputCls = "w-full px-3 py-2.5 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:shadow-[0_0_0_3px_rgba(74,124,89,0.08)] focus:bg-white transition-all placeholder-[#B8C0CC] appearance-none disabled:opacity-50 disabled:cursor-not-allowed";
@@ -85,9 +85,8 @@ function DepartmentSelect({ clinicId, branchId, selectedDepartments, onChange })
                 const selected = selectedDepartments.find(d => d.id === dept.id);
                 return (
                     <button key={dept.id} type="button" onClick={() => toggle(dept)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer font-['DM_Sans'] ${
-                            selected ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-[#F7F4EF] text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]/40 hover:text-[#4A7C59]"
-                        }`}>
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer font-['DM_Sans'] ${selected ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-[#F7F4EF] text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]/40 hover:text-[#4A7C59]"
+                            }`}>
                         {selected ? <Check size={11} /> : <Plus size={11} />}
                         {dept.name}
                     </button>
@@ -172,7 +171,10 @@ export default function StaffEdit() {
                     targetRoleName: data.role_name,
                     viewerLevel: undefined,
                     targetLevel: data.role_level ?? undefined,
+                    roles: roles
                 });
+
+
                 if (!allowed) {
                     setIsHierarchyBlocked(true);
                     setFetchLoading(false);
@@ -357,12 +359,11 @@ export default function StaffEdit() {
                         <p className="text-[11px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
                         {profile.staff_id && <p className="text-[10px] font-mono text-[#B8C0CC] mt-0.5">{profile.staff_id}</p>}
                     </div>
-                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
-                        form.status === "active" ? "bg-[#E8F2EB] text-[#2F5C3A]" :
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${form.status === "active" ? "bg-[#E8F2EB] text-[#2F5C3A]" :
                         form.status === "suspended" ? "bg-[#FBF6E9] text-[#8b6a1a]" :
-                        form.status === "terminated" ? "bg-[#FAF0ED] text-[#c05c3c]" :
-                        "bg-[#EEF2F7] text-[#4a6580]"
-                    }`}>{form.status}</span>
+                            form.status === "terminated" ? "bg-[#FAF0ED] text-[#c05c3c]" :
+                                "bg-[#EEF2F7] text-[#4a6580]"
+                        }`}>{form.status}</span>
                 </div>
 
                 {error && (
