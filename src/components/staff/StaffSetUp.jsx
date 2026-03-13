@@ -1,20 +1,17 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
-    ArrowLeft, User, Phone, Briefcase, ShieldCheck,
+    User, Phone, Briefcase, ShieldCheck,
     AlertCircle, Loader2, ChevronRight, Check,
     HeartPulse, FileText, XCircle, Image as ImageIcon,
-    Shield, Eye, Lock,
+    ArrowLeft, Plus, X,
 } from "lucide-react";
 import { useStaffStore, useClinicStore } from "../../store/store";
 import FilePickerModal from "../ui/modals/FilePickerModal";
-import ImagePreview from "../ui/file-manager/ImagePreview";
-import { useAuth } from "../../context/Auth/UseAuth";
 
 const EMPLOYMENT_TYPES = ["full_time", "part_time", "contract", "locum"];
 const GENDERS = ["male", "female", "other"];
 const SALARY_FREQUENCIES = ["monthly", "weekly", "daily", "hourly"];
-const STAFF_STATUSES = ["active", "suspended", "terminated", "resigned"];
 const SECTIONS = [
     { id: "personal", label: "Personal Info", icon: User },
     { id: "contact", label: "Contact", icon: Phone },
@@ -55,15 +52,56 @@ function SectionCard({ title, icon: Icon, children, active, onClick, completed }
     );
 }
 
-function toInputDate(val) {
-    if (!val) return "";
-    const d = new Date(val);
-    if (isNaN(d)) return "";
-    return d.toISOString().slice(0, 10);
-}
+function DepartmentSelect({ clinicId, branchId, selectedDepartments, onChange }) {
+    const [departments, setDepartments] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-function initials(fname, lname) {
-    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
+    useEffect(() => {
+        if (!clinicId || !branchId) return;
+        setLoading(true);
+        import("../../../api/axiosInstance").then(({ default: axiosInstance }) => {
+            axiosInstance.get(`/clinics/${clinicId}/branches/${branchId}/departments`)
+                .then(res => {
+                    setDepartments(res.data?.data?.departments || []);
+                })
+                .catch(() => setDepartments([]))
+                .finally(() => setLoading(false));
+        });
+    }, [clinicId, branchId]);
+
+    const toggle = (dept) => {
+        const exists = selectedDepartments.find(d => d.id === dept.id);
+        if (exists) {
+            onChange(selectedDepartments.filter(d => d.id !== dept.id));
+        } else {
+            onChange([...selectedDepartments, dept]);
+        }
+    };
+
+    if (loading) return <div className="text-[12px] text-[#8A9BB0]">Loading departments…</div>;
+    if (!departments.length) return <div className="text-[12px] text-[#B8C0CC]">No departments available for this branch.</div>;
+
+    return (
+        <div className="flex flex-wrap gap-2">
+            {departments.map(dept => {
+                const selected = selectedDepartments.find(d => d.id === dept.id);
+                return (
+                    <button
+                        key={dept.id}
+                        type="button"
+                        onClick={() => toggle(dept)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer font-['DM_Sans'] ${selected
+                            ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                            : "bg-[#F7F4EF] text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]/40 hover:text-[#4A7C59]"
+                            }`}
+                    >
+                        {selected ? <Check size={11} /> : <Plus size={11} />}
+                        {dept.name}
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 const EMPTY_FORM = {
@@ -73,21 +111,18 @@ const EMPTY_FORM = {
     salary: "", salary_frequency: "monthly", specialization: "",
     license_number: "", license_expiry: "", qualification: "",
     emergency_contact_name: "", emergency_contact_phone: "",
-    emergency_contact_relationship: "", notes: "", status: "active",
-    new_role_id: "",
+    emergency_contact_relationship: "", notes: "",
 };
 
-export default function StaffEdit() {
-    const { staffId } = useParams();
+export default function StaffSetup() {
+    const { inviteId } = useParams();
     const navigate = useNavigate();
     const { selectedClinic } = useClinicStore();
-    const { user } = useAuth();
-    const { getStaffProfileForEdit, updateStaffProfile } = useStaffStore();
+    const { getInviteById, setupStaffProfile } = useStaffStore();
 
-    const [profile, setProfile] = useState(null);
+    const [invite, setInvite] = useState(null);
     const [fetchLoading, setFetchLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
-    const [isOwnProfile, setIsOwnProfile] = useState(false);
 
     const [activeSection, setActiveSection] = useState("personal");
     const [saving, setSaving] = useState(false);
@@ -95,57 +130,26 @@ export default function StaffEdit() {
     const [error, setError] = useState(null);
     const [completedSections, setCompletedSections] = useState(new Set());
     const [showFilePicker, setShowFilePicker] = useState(false);
-    const [showPhotoViewer, setShowPhotoViewer] = useState(false);
     const [form, setForm] = useState(EMPTY_FORM);
+    const [selectedDepartments, setSelectedDepartments] = useState([]);
 
-    const currentUserId = user?.id;
+    const clinicId = selectedClinic?.id;
+    const branchId = selectedClinic?.branchId;
 
     useEffect(() => {
-        if (!staffId || !selectedClinic?.id) return;
+        if (!inviteId || !clinicId || !branchId) return;
         setFetchLoading(true);
         setFetchError(null);
-        getStaffProfileForEdit(selectedClinic.id, selectedClinic.branchId, staffId)
+        getInviteById(clinicId, branchId, inviteId)
             .then((data) => {
-                setProfile(data);
-                // Block if the logged-in user owns this staff profile
-                if (currentUserId && data?.user_id && String(data.user_id) === String(currentUserId)) {
-                    setIsOwnProfile(true);
-                    setFetchLoading(false);
-                    return;
-                }
-                setForm({
-                    phone: data.phone || "",
-                    alt_phone: data.alt_phone || "",
-                    gender: data.gender || "",
-                    date_of_birth: toInputDate(data.date_of_birth),
-                    profile_photo_url: data.profile_photo_url || "",
-                    address: data.address || "",
-                    city: data.city || "",
-                    state_id: data.state_id ? String(data.state_id) : "",
-                    date_joined: toInputDate(data.date_joined),
-                    date_left: toInputDate(data.date_left),
-                    employment_type: data.employment_type || "full_time",
-                    salary: data.salary ? String(data.salary) : "",
-                    salary_frequency: data.salary_frequency || "monthly",
-                    specialization: data.specialization || "",
-                    license_number: data.license_number || "",
-                    license_expiry: toInputDate(data.license_expiry),
-                    qualification: data.qualification || "",
-                    emergency_contact_name: data.emergency_contact_name || "",
-                    emergency_contact_phone: data.emergency_contact_phone || "",
-                    emergency_contact_relationship: data.emergency_contact_relationship || "",
-                    notes: data.notes || "",
-                    status: data.status || "active",
-                    new_role_id: data.role_id ? String(data.role_id) : "",
-                });
-                setCompletedSections(new Set(SECTIONS.map(s => s.id)));
+                setInvite(data);
                 setFetchLoading(false);
             })
             .catch((err) => {
-                setFetchError(err?.response?.data?.message || err?.message || "Failed to load staff profile.");
+                setFetchError(err?.response?.data?.message || err?.message || "Failed to load invitation.");
                 setFetchLoading(false);
             });
-    }, [staffId, selectedClinic?.id]);
+    }, [inviteId, clinicId, branchId]);
 
     const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
 
@@ -163,16 +167,16 @@ export default function StaffEdit() {
         setSaving(true);
         setError(null);
         try {
-            await updateStaffProfile(selectedClinic.id, selectedClinic.branchId, staffId, {
+            await setupStaffProfile(clinicId, branchId, inviteId, {
                 ...form,
                 salary: form.salary ? parseFloat(form.salary) : null,
                 state_id: form.state_id ? parseInt(form.state_id, 10) : null,
-                new_role_id: form.new_role_id ? parseInt(form.new_role_id, 10) : null,
+                department_ids: selectedDepartments.map(d => d.id),
             });
             setSaved(true);
-            setTimeout(() => navigate("/dashboard/staff"), 1800);
+            setTimeout(() => navigate("/dashboard/staff?tab=staff"), 1800);
         } catch (err) {
-            setError(err?.response?.data?.message || err?.message || "Failed to update profile.");
+            setError(err?.response?.data?.message || err?.message || "Failed to create staff profile.");
         } finally {
             setSaving(false);
         }
@@ -183,46 +187,23 @@ export default function StaffEdit() {
             <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
                     <Loader2 size={28} className="animate-spin" />
-                    <p className="text-[13px]">Loading staff profile…</p>
+                    <p className="text-[13px]">Loading invitation…</p>
                 </div>
             </div>
         );
     }
 
-    // Block own-profile editing
-    if (isOwnProfile) {
-        return (
-            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
-                <div className="text-center max-w-sm">
-                    <div className="w-14 h-14 rounded-2xl bg-[#FBF6E9] flex items-center justify-center mx-auto mb-4">
-                        <Lock size={24} className="text-[#C9A84C]" />
-                    </div>
-                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">You can't edit your own profile</p>
-                    <p className="text-[13px] text-[#8A9BB0] mb-5">
-                        Staff profiles must be edited by an administrator. Please contact your clinic admin to make changes to your profile.
-                    </p>
-                    <Link
-                        to="/dashboard/staff"
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#F7F4EF] text-[#8A9BB0] text-[12px] font-semibold rounded-xl no-underline hover:bg-[#EEF2F7] transition-all border border-black/[0.09]"
-                    >
-                        <ArrowLeft size={13} />Back to staff
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
-    if (fetchError || !profile) {
+    if (fetchError || !invite) {
         return (
             <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
                 <div className="text-center max-w-sm">
                     <div className="w-14 h-14 rounded-2xl bg-[#FAF0ED] flex items-center justify-center mx-auto mb-4">
                         <XCircle size={24} className="text-[#E8927C]" />
                     </div>
-                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Profile not found</p>
-                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This staff profile does not exist or you don't have access."}</p>
-                    <Link to="/dashboard/staff" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
-                        <ArrowLeft size={13} />Back to staff
+                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Invitation not found</p>
+                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This invitation does not exist or is no longer valid."}</p>
+                    <Link to="/dashboard/staff?tab=staff_invites" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
+                        <ArrowLeft size={13} />Back to invites
                     </Link>
                 </div>
             </div>
@@ -237,7 +218,7 @@ export default function StaffEdit() {
                         <style>{`@keyframes popIn{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}`}</style>
                         <Check size={28} className="text-[#4A7C59]" />
                     </div>
-                    <p className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] mb-1">Profile updated!</p>
+                    <p className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] mb-1">Profile created!</p>
                     <p className="text-[13px] text-[#8A9BB0]">Redirecting back to staff…</p>
                 </div>
             </div>
@@ -247,66 +228,31 @@ export default function StaffEdit() {
     return (
         <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
             <div className="sticky top-0 z-20 bg-white border-b border-black/[0.09] px-6 py-4 flex items-center gap-4">
-                <Link to="/dashboard/staff"
+                <Link to="/dashboard/staff?tab=staff_invites"
                     className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-xl text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline">
                     <ArrowLeft size={15} />
                 </Link>
                 <div className="flex-1 min-w-0">
-                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Edit Staff Profile</h1>
+                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Set Up Staff Profile</h1>
                     <p className="text-[11px] text-[#8A9BB0] mt-0.5 truncate">
-                        {profile.fname} {profile.lname} · <span className="font-semibold text-[#4A7C59]">{profile.role_name}</span>
-                        {profile.branch_name && <> · {profile.branch_name}</>}
-                        {profile.staff_id && <> · <span className="font-mono">{profile.staff_id}</span></>}
+                        {invite.email} · <span className="font-semibold text-[#4A7C59]">{invite.role_name}</span>
+                        {invite.branch_name && <> · {invite.branch_name}</>}
                     </p>
                 </div>
                 <button onClick={handleSubmit} disabled={saving}
                     className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer font-['DM_Sans'] disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0">
                     {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                    {saving ? "Saving…" : "Save changes"}
+                    {saving ? "Creating…" : "Create profile"}
                 </button>
             </div>
 
             <div className="max-w-[720px] mx-auto px-4 py-6 space-y-3">
-                <div className="bg-white rounded-2xl border border-black/[0.09] p-4 flex items-center gap-4 mb-2">
-                    <div
-                        className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-black/[0.09] cursor-pointer relative group"
-                        onClick={() => form.profile_photo_url && setShowPhotoViewer(true)}
-                    >
-                        {form.profile_photo_url ? (
-                            <>
-                                <img src={form.profile_photo_url} alt="" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Eye size={14} className="text-white" />
-                                </div>
-                            </>
-                        ) : (
-                            <div className="w-full h-full bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] text-[16px] font-bold">
-                                {initials(profile.fname, profile.lname)}
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-[#0D1117]">{profile.fname} {profile.lname}</p>
-                        <p className="text-[11px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
-                        {profile.staff_id && <p className="text-[10px] font-mono text-[#B8C0CC] mt-0.5">{profile.staff_id}</p>}
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${form.status === "active" ? "bg-[#E8F2EB] text-[#2F5C3A]" :
-                            form.status === "suspended" ? "bg-[#FBF6E9] text-[#8b6a1a]" :
-                                form.status === "terminated" ? "bg-[#FAF0ED] text-[#c05c3c]" :
-                                    "bg-[#EEF2F7] text-[#4a6580]"
-                            }`}>
-                            {form.status}
-                        </span>
-                        {form.profile_photo_url && (
-                            <button
-                                type="button"
-                                onClick={() => setShowPhotoViewer(true)}
-                                className="text-[10px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#4A7C59] transition-colors font-['DM_Sans'] flex items-center gap-1"
-                            >
-                                <Eye size={11} />View photo
-                            </button>
-                        )}
+                <div className="bg-white rounded-2xl border border-black/[0.09] p-4 mb-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] mb-1">Setting up profile for</p>
+                    <p className="text-[14px] font-semibold text-[#0D1117]">{invite.email}</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        <span className="text-[11px] font-semibold px-2.5 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg">{invite.role_name}</span>
+                        {invite.branch_name && <span className="text-[11px] font-semibold px-2.5 py-1 bg-[#EEF2F7] text-[#4a6580] rounded-lg">{invite.branch_name}</span>}
                     </div>
                 </div>
 
@@ -328,22 +274,11 @@ export default function StaffEdit() {
                             <Field label="Date of Birth">
                                 <input type="date" className={inputCls} value={form.date_of_birth} onChange={set("date_of_birth")} />
                             </Field>
-                            <Field label="Status">
-                                <select className={inputCls} value={form.status} onChange={set("status")}>
-                                    {STAFF_STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Profile Photo">
+                            <Field label="Profile Photo" span={2}>
                                 <div className="flex items-center gap-2">
                                     {form.profile_photo_url ? (
-                                        <div
-                                            className="w-10 h-10 rounded-xl overflow-hidden border border-black/[0.09] flex-shrink-0 cursor-pointer relative group"
-                                            onClick={() => setShowPhotoViewer(true)}
-                                        >
+                                        <div className="w-10 h-10 rounded-xl overflow-hidden border border-black/[0.09] flex-shrink-0">
                                             <img src={form.profile_photo_url} alt="Profile" className="w-full h-full object-cover" />
-                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Eye size={11} className="text-white" />
-                                            </div>
                                         </div>
                                     ) : (
                                         <div className="w-10 h-10 rounded-xl bg-[#F7F4EF] border border-black/[0.09] flex items-center justify-center flex-shrink-0">
@@ -355,21 +290,40 @@ export default function StaffEdit() {
                                         <ImageIcon size={13} />
                                         {form.profile_photo_url ? "Change photo" : "Select photo"}
                                     </button>
+                                    {form.profile_photo_url && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setForm(f => ({ ...f, profile_photo_url: "" }))}
+                                            className="w-9 h-9 flex items-center justify-center bg-[#FAF0ED] text-[#c05c3c] rounded-xl border-none cursor-pointer hover:bg-[#E8927C]/20 transition-all"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
                                 </div>
                             </Field>
-                            <Field label="Change Role" span={2}>
-                                <div className="flex items-center gap-2">
-                                    <Shield size={13} className="text-[#8A9BB0] flex-shrink-0" />
-                                    <input
-                                        className={inputCls}
-                                        placeholder="Enter new role ID (optional — leave blank to keep current)"
-                                        value={form.new_role_id === String(profile.role_id) ? "" : form.new_role_id}
-                                        onChange={set("new_role_id")}
-                                        type="number"
-                                    />
-                                    <span className="text-[11px] text-[#8A9BB0] whitespace-nowrap">Current: <span className="font-semibold text-[#0D1117]">{profile.role_name}</span></span>
-                                </div>
-                                <p className="text-[10px] text-[#B8C0CC] mt-1.5">Role hierarchy is enforced — you can only assign roles below your own.</p>
+                            <Field label="Departments" span={2}>
+                                <DepartmentSelect
+                                    clinicId={clinicId}
+                                    branchId={branchId}
+                                    selectedDepartments={selectedDepartments}
+                                    onChange={setSelectedDepartments}
+                                />
+                                {selectedDepartments.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {selectedDepartments.map(d => (
+                                            <span key={d.id} className="flex items-center gap-1 text-[11px] px-2 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg font-semibold">
+                                                {d.name}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedDepartments(prev => prev.filter(p => p.id !== d.id))}
+                                                    className="ml-0.5 bg-transparent border-none cursor-pointer text-[#4A7C59] hover:text-[#c05c3c] transition-colors p-0"
+                                                >
+                                                    <X size={10} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </Field>
                         </div>
                         <div className="mt-4 flex justify-end">
@@ -421,9 +375,6 @@ export default function StaffEdit() {
                                 <select className={inputCls} value={form.salary_frequency} onChange={set("salary_frequency")}>
                                     {SALARY_FREQUENCIES.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
                                 </select>
-                            </Field>
-                            <Field label="Date Left (if applicable)" span={2}>
-                                <input type="date" className={inputCls} value={form.date_left} onChange={set("date_left")} />
                             </Field>
                         </div>
                         <div className="mt-4 flex justify-between">
@@ -481,40 +432,27 @@ export default function StaffEdit() {
                             <button onClick={() => { markComplete("notes"); handleSubmit(); }} disabled={saving}
                                 className="flex items-center gap-2 px-5 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans'] disabled:opacity-60">
                                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                                {saving ? "Saving…" : "Save changes"}
+                                {saving ? "Creating…" : "Create profile"}
                             </button>
                         </div>
                     </SectionCard>
                 </div>
 
                 <p className="text-center text-[11px] text-[#B8C0CC] py-2">
-                    Staff Profile #{staffId} · Role changes are enforced by hierarchy.
+                    Setting up profile for invite #{inviteId}
                 </p>
             </div>
 
             <FilePickerModal
                 isOpen={showFilePicker}
                 onClose={() => setShowFilePicker(false)}
-                clinicId={selectedClinic?.id}
+                clinicId={clinicId}
                 allowedTypes={["image"]}
                 onSelectFile={(file) => {
                     setForm(f => ({ ...f, profile_photo_url: file.file_url }));
                     setShowFilePicker(false);
                 }}
             />
-
-            {showPhotoViewer && form.profile_photo_url && (
-                <ImagePreview
-                    isOpen={showPhotoViewer}
-                    onClose={() => setShowPhotoViewer(false)}
-                    asset={{
-                        file_url: form.profile_photo_url,
-                        file_original_name: `${profile.fname} ${profile.lname}`,
-                        fname: profile.fname,
-                        lname: profile.lname,
-                    }}
-                />
-            )}
         </div>
     );
 }

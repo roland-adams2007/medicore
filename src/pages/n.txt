@@ -1,422 +1,1375 @@
-the backend should generate the staff id and also check it well the roles have parent id, i want that the child cannot, edit the parent of the role u get or invite someone like a clinic manager cannot edit clinic owner etc but the parent can edit child downwards
-and if i press the staff profile image it should bring the image viewer and also i should be able to change the profile of the staff and also, i can change the role, and one more thing display the staffs in the staff.jsx u get the model and everything u get, give me full code with no comments
-role.model.js
+Staff.jsx:
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  Users, Mail, Plus, Search, RefreshCw, MoreVertical,
+  Settings, CheckCircle2, XCircle, Loader2, ChevronDown,
+  Eye, Building2, X, Send, ChevronLeft, ChevronRight,
+} from "lucide-react";
+import { debounce } from "lodash";
+import { useStaffStore, useClinicStore, useRolestore } from "../store/store";
+import ImagePreview from "../components/ui/file-manager/ImagePreview";
+import { useAuth } from "../context/Auth/UseAuth";
+import InviteModal from "../components/ui/modals/InviteModal";
+import StaffTable from "../components/staff/StaffTable";
+import InvitesTable from "../components/staff/InvitesTable";
 
 
-const { db_connection } = require("../config/config.inc");
-const generateUUID = require("../utils/generateUUID");
 
-const Role = {
-  findById: async (id) => {
-    try {
-      const [rows] = await db_connection.execute(
-        `SELECT id, name FROM roles WHERE id = ? LIMIT 1`,
-        [id],
-      );
-      return rows[0] || null;
-    } catch (error) {
-      console.error(error);
-      return null;
-    }
-  },
-  getAll: async () => {
-    try {
-      const [rows] = await db_connection.execute(`
-      SELECT 
-        r.id, 
-        r.name,
-        r.parent_id,
-        p.name as parent_name
-      FROM roles r
-      LEFT JOIN roles p ON r.parent_id = p.id
-      ORDER BY r.name ASC
-    `);
-      return rows.length > 0 ? rows : [];
-    } catch (error) {
-      console.error("Error fetching roles:", error.message);
-      return [];
-    }
-  },
+/* ─── colour maps ────────────────────────────────────────────── */
+
+// Add this helper function before your component
+const getMimeTypeFromUrl = (url) => {
+  if (!url) return 'image/jpeg'; // default
+
+  const extension = url.split('.').pop()?.toLowerCase();
+
+  const mimeTypes = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+    'avif': 'image/avif'
+  };
+
+  return mimeTypes[extension] || 'image/jpeg'; // fallback to jpeg
 };
 
-module.exports = Role;
+const inputCls =
+  "w-full px-3 py-2 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:bg-white transition-all placeholder-[#B8C0CC]";
+
+export default function Staff() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Derive all state from URL
+  const tab = searchParams.get("tab") || "staff";
+  const inviteModalOpen = searchParams.get("staff_invite") === "true";
+
+  const { selectedClinic } = useClinicStore();
+  const { user } = useAuth();
+  const {
+    staff, staffInvites, loading, pagination,
+    fetchClinicStaff, fetchStaffInvitations, resendInvite,
+  } = useStaffStore();
+  const { roles, loading: rolesLoading, fetchRoles } = useRolestore();
+
+  const [inputValue, setInputValue] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const clinicId = selectedClinic?.id;
+  const branchId = selectedClinic?.branchId;
+  const currentUserId = user?.id;
+  const currentUserEmail = user?.email?.toLowerCase() ?? null;
+
+  useEffect(() => { fetchRoles(); }, []);
+
+  /* ── Modal URL helpers ─────────────────────────────────────── */
+  const openInviteModal = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("staff_invite", "true");
+      return next;
+    });
+  };
+
+  const closeInviteModal = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("staff_invite");
+      return next;
+    });
+  };
+
+  /* ── Lodash debounced search ───────────────────────────────── */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSetSearch = useCallback(debounce((val) => setSearch(val), 350), []);
+
+  const handleSearchChange = (e) => {
+    setInputValue(e.target.value);
+    debouncedSetSearch(e.target.value);
+  };
+
+  /* ── Toast ─────────────────────────────────────────────────── */
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  /* ── Data loaders ──────────────────────────────────────────── */
+  const loadStaff = useCallback(
+    async (page = 1) => {
+      if (!clinicId) return;
+      try { await fetchClinicStaff(clinicId, { search, status: statusFilter || null, page }); } catch { }
+    },
+    [clinicId, branchId, search, statusFilter]
+  );
+
+  const loadInvites = useCallback(
+    async (page = 1) => {
+      if (!clinicId || !branchId) return;
+      try { await fetchStaffInvitations(clinicId, branchId, { search, page }); } catch { }
+    },
+    [clinicId, branchId, search]
+  );
+
+  useEffect(() => {
+    if (tab === "staff") loadStaff(1);
+    else loadInvites(1);
+  }, [tab, search, statusFilter]);
+
+  /* ── Handlers ──────────────────────────────────────────────── */
+  const handleResend = async (invite) => {
+    try {
+      await resendInvite(clinicId, branchId, invite.id);
+      showToast("Invitation resent successfully.");
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Failed to resend invite.", "error");
+    }
+  };
+
+  const handleInviteSuccess = () => {
+    showToast("Invitation sent successfully.");
+    loadInvites(1);
+    // Navigate to invites tab and remove modal param
+    setSearchParams({ tab: "staff_invites" });
+  };
+
+  const setTab = (t) => {
+    setInputValue("");
+    setSearch("");
+    setStatusFilter("");
+    setSearchParams({ tab: t });
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
+      <style>{`
+        .icon-btn {
+          width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+          border-radius:8px;color:#8A9BB0;background:transparent;border:none;cursor:pointer;
+          transition:background .15s,color .15s;flex-shrink:0;
+        }
+        .icon-btn:hover { background:#F7F4EF; color:#0D1117; }
+        .menu-item {
+          width:100%;display:flex;align-items:center;gap:10px;
+          padding:10px 14px;font-size:12px;font-weight:500;color:#0D1117;
+          text-decoration:none;transition:background .12s;cursor:pointer;
+          background:transparent;border:none;
+        }
+        .menu-item:hover { background:#F7F4EF; }
+        .field-label {
+          display:block;font-size:11px;font-weight:700;
+          text-transform:uppercase;letter-spacing:.07em;color:#8A9BB0;margin-bottom:6px;
+        }
+        @keyframes slideIn { from{opacity:0;transform:translateX(12px)} to{opacity:1;transform:none} }
+      `}</style>
+
+      {/* ── Toast ── */}
+      {toast && (
+        <div className={`fixed top-5 right-5 z-[9999] flex items-center gap-2.5 px-4 py-3 rounded-xl text-[13px] font-medium shadow-lg animate-[slideIn_0.2s_ease] ${toast.type === "error"
+          ? "bg-[#FAF0ED] text-[#c05c3c] border border-[#E8927C]/30"
+          : "bg-[#E8F2EB] text-[#2F5C3A] border border-[#4A7C59]/20"
+          }`}>
+          {toast.type === "error" ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
+          {toast.msg}
+        </div>
+      )}
+
+      {/* ── Invite Modal — open/close controlled entirely by URL ── */}
+      <InviteModal
+        open={inviteModalOpen}
+        onClose={closeInviteModal}
+        clinicId={clinicId}
+        branchId={branchId}
+        roles={roles}
+        rolesLoading={rolesLoading}
+        onSuccess={handleInviteSuccess}
+        inputCls={inputCls}
+      />
+
+      <div className="px-4 sm:px-6 py-6 max-w-[1100px] mx-auto">
+
+        {/* ── Page header ── */}
+        <div className="flex items-start justify-between mb-6 gap-3">
+          <div>
+            <h1 className="font-['DM_Serif_Display'] text-[24px] sm:text-[26px] text-[#0D1117] leading-tight">Staff</h1>
+            <p className="text-[13px] text-[#8A9BB0] mt-0.5">{selectedClinic?.name || "Clinic"}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => (tab === "staff" ? loadStaff(1) : loadInvites(1))}
+              disabled={loading}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-black/[0.09] text-[#8A9BB0] hover:bg-[#F7F4EF] hover:text-[#0D1117] transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </button>
+            {/* Opens modal AND sets ?staff_invite=true in URL */}
+            <button
+              onClick={openInviteModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer whitespace-nowrap"
+            >
+              <Plus size={14} />
+              <span className="hidden sm:inline">Invite staff</span>
+              <span className="sm:hidden">Invite</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Tabs ── */}
+        <div className="flex gap-1 mb-5 bg-white rounded-2xl border border-black/[0.09] p-1">
+          {[
+            { id: "staff", label: "Staff", icon: Users },
+            { id: "staff_invites", label: "Invitations", icon: Mail },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id} onClick={() => setTab(id)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[12px] font-semibold rounded-xl transition-all cursor-pointer border-none ${tab === id ? "bg-[#4A7C59] text-white shadow-sm" : "bg-transparent text-[#8A9BB0] hover:text-[#0D1117]"
+                }`}
+            >
+              <Icon size={13} />{label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Filters ── */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          <div className="flex-1 relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B8C0CC] pointer-events-none" />
+            <input
+              className={inputCls + " pl-9"}
+              placeholder={tab === "staff" ? "Search by name, email, staff ID…" : "Search by email…"}
+              value={inputValue}
+              onChange={handleSearchChange}
+            />
+          </div>
+          {tab === "staff" && (
+            <div className="relative self-start sm:self-auto">
+              <select
+                className="px-3 pr-8 py-2 text-[12px] font-['DM_Sans'] bg-white border border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] transition-all appearance-none cursor-pointer w-full sm:w-auto"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="terminated">Terminated</option>
+                <option value="resigned">Resigned</option>
+              </select>
+              <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+            </div>
+          )}
+        </div>
+
+        {/* ── Table panels ── */}
+        {tab === "staff" && (
+          <StaffTable
+            staff={staff} loading={loading} pagination={pagination}
+            currentUserId={currentUserId}
+            onPageChange={(p) => loadStaff(p)}
+            onPhotoClick={(s) => setPreviewPhoto(s)}
+            onInvite={openInviteModal}
+          />
+        )}
+        {tab === "staff_invites" && (
+          <InvitesTable
+            invites={staffInvites} loading={loading} pagination={pagination}
+            clinicId={clinicId} branchId={branchId}
+            currentUserEmail={currentUserEmail}
+            onPageChange={(p) => loadInvites(p)}
+            onResend={handleResend}
+            onInvite={openInviteModal}
+          />
+        )}
+      </div>
+
+      {previewPhoto && (
+        <ImagePreview
+          isOpen={!!previewPhoto}
+          onClose={() => setPreviewPhoto(null)}
+          asset={{
+            file_url: previewPhoto?.profile_photo_url,
+            file_original_name: `${previewPhoto.fname} ${previewPhoto.lname}`,
+            mime_type: getMimeTypeFromUrl(previewPhoto?.profile_photo_url),
+            fname: previewPhoto.fname,
+            lname: previewPhoto.lname,
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 
 
-db:
--- Users table
-CREATE TABLE IF NOT EXISTS users (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
-  fname VARCHAR(100) NULL,
-  lname VARCHAR(100) NULL,
-  email VARCHAR(190) NOT NULL UNIQUE,
-  password_hash VARCHAR(255) NULL,
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  email_verified_at DATETIME NULL,
-  last_login_at DATETIME NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_users_email (email),
-  INDEX idx_users_is_active (is_active),
-  INDEX idx_users_verified (email_verified_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+StaffEdit.jsx:
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import {
+    ArrowLeft, User, Phone, Briefcase, ShieldCheck,
+    AlertCircle, Loader2, ChevronRight, Check,
+    HeartPulse, FileText, XCircle, Image as ImageIcon,
+    Shield, Eye, Lock, Plus, X,
+} from "lucide-react";
+import { useStaffStore, useClinicStore, useRolestore } from "../../store/store";
+import FilePickerModal from "../ui/modals/FilePickerModal";
+import ImagePreview from "../ui/file-manager/ImagePreview";
+import { useAuth } from "../../context/Auth/UseAuth";
 
--- User sessions table
-CREATE TABLE IF NOT EXISTS user_sessions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
-  session_id CHAR(36) NOT NULL UNIQUE,
-  ip_address VARCHAR(45) NULL,
-  user_agent VARCHAR(512) NULL,
-  device_label VARCHAR(120) NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_seen_at DATETIME NULL,
-  revoked_at DATETIME NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_sessions_user (user_id),
-  INDEX idx_sessions_revoked (revoked_at),
-  INDEX idx_sessions_last_seen (last_seen_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+const EMPLOYMENT_TYPES = ["full_time", "part_time", "contract", "locum"];
+const GENDERS = ["male", "female", "other"];
+const SALARY_FREQUENCIES = ["monthly", "weekly", "daily", "hourly"];
+const STAFF_STATUSES = ["active", "suspended", "terminated", "resigned"];
+const SECTIONS = [
+    { id: "personal", label: "Personal Info", icon: User },
+    { id: "contact", label: "Contact", icon: Phone },
+    { id: "employment", label: "Employment", icon: Briefcase },
+    { id: "medical", label: "Professional", icon: HeartPulse },
+    { id: "emergency", label: "Emergency Contact", icon: ShieldCheck },
+    { id: "notes", label: "Notes", icon: FileText },
+];
 
--- Refresh tokens table
-CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
-  session_id CHAR(36) NOT NULL,
-  token_hash CHAR(64) NOT NULL UNIQUE,
-  expires_at DATETIME NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  revoked_at DATETIME NULL,
-  replaced_by_token_hash CHAR(64) NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (session_id) REFERENCES user_sessions(session_id) ON DELETE CASCADE,
-  INDEX idx_refresh_user (user_id),
-  INDEX idx_refresh_session (session_id),
-  INDEX idx_refresh_expires (expires_at),
-  INDEX idx_refresh_revoked (revoked_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+const inputCls = "w-full px-3 py-2.5 text-[13px] font-['DM_Sans'] bg-[#F7F4EF] border-[1.5px] border-black/[0.09] rounded-xl outline-none text-[#0D1117] focus:border-[#4A7C59] focus:shadow-[0_0_0_3px_rgba(74,124,89,0.08)] focus:bg-white transition-all placeholder-[#B8C0CC] appearance-none disabled:opacity-50 disabled:cursor-not-allowed";
+const labelCls = "block text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] mb-1.5";
 
--- Email tokens table
-CREATE TABLE IF NOT EXISTS email_tokens (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(190) NOT NULL,
-  user_id BIGINT UNSIGNED DEFAULT NULL,
-  type VARCHAR(100) NOT NULL,
-  token_hash CHAR(64) NOT NULL UNIQUE,
-  is_used TINYINT(1) NOT NULL DEFAULT 0,
-  expires_at DATETIME NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  used_at DATETIME NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_email_tokens_user (user_id),
-  INDEX idx_email_tokens_type (type),
-  INDEX idx_email_tokens_used (is_used),
-  INDEX idx_email_tokens_expires (expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+function Field({ label, children, span = 1 }) {
+    return (
+        <div className={span === 2 ? "col-span-2" : ""}>
+            <label className={labelCls}>{label}</label>
+            {children}
+        </div>
+    );
+}
 
--- Login attempts table
-CREATE TABLE IF NOT EXISTS login_attempts (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(190) NULL,
-  ip_address VARCHAR(45) NULL,
-  success TINYINT(1) NOT NULL DEFAULT 0,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_attempts_email (email),
-  INDEX idx_attempts_ip (ip_address),
-  INDEX idx_attempts_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+function SectionCard({ title, icon: Icon, children, active, onClick, completed }) {
+    return (
+        <div className={`rounded-2xl border transition-all ${active ? "border-[#4A7C59] shadow-[0_0_0_3px_rgba(74,124,89,0.08)]" : "border-black/[0.09]"} bg-white overflow-hidden`}>
+            <button onClick={onClick} className="w-full flex items-center gap-3 px-5 py-4 text-left cursor-pointer bg-transparent border-none">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${active ? "bg-[#4A7C59] text-white" : completed ? "bg-[#E8F2EB] text-[#4A7C59]" : "bg-[#F7F4EF] text-[#8A9BB0]"}`}>
+                    {completed && !active ? <Check size={14} /> : <Icon size={14} />}
+                </div>
+                <span className={`text-[13px] font-semibold flex-1 font-['DM_Sans'] ${active ? "text-[#4A7C59]" : "text-[#0D1117]"}`}>{title}</span>
+                <ChevronRight size={14} className={`text-[#8A9BB0] transition-transform ${active ? "rotate-90" : ""}`} />
+            </button>
+            {active && (
+                <div className="px-5 pb-5 border-t border-black/[0.06]">
+                    <div className="pt-4">{children}</div>
+                </div>
+            )}
+        </div>
+    );
+}
 
--- States table
-CREATE TABLE IF NOT EXISTS states (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  code VARCHAR(10) NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+function DepartmentSelect({ clinicId, branchId, selectedDepartments, onChange }) {
+    const [departments, setDepartments] = useState([]);
+    const [loading, setLoading] = useState(false);
 
--- Roles table
-CREATE TABLE IF NOT EXISTS roles (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  parent_id BIGINT UNSIGNED NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (parent_id) REFERENCES roles(id) ON DELETE SET NULL,
-  UNIQUE KEY uq_role_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    useEffect(() => {
+        if (!clinicId || !branchId) return;
+        setLoading(true);
+        import("../../api/axiosInstance").then(({ default: axiosInstance }) => {
+            axiosInstance.get(`/clinics/${clinicId}/branches/${branchId}/departments`)
+                .then(res => {
+                    setDepartments(res.data?.data?.departments || []);
+                })
+                .catch(() => setDepartments([]))
+                .finally(() => setLoading(false));
+        });
+    }, [clinicId, branchId]);
 
--- Permissions table
-CREATE TABLE IF NOT EXISTS permissions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(150) NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    const toggle = (dept) => {
+        const exists = selectedDepartments.find(d => d.id === dept.id);
+        if (exists) {
+            onChange(selectedDepartments.filter(d => d.id !== dept.id));
+        } else {
+            onChange([...selectedDepartments, dept]);
+        }
+    };
 
--- User roles table
-CREATE TABLE IF NOT EXISTS user_roles (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
-  role_id BIGINT UNSIGNED NOT NULL,
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_user_role (user_id, role_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    if (loading) return <div className="text-[12px] text-[#8A9BB0]">Loading departments…</div>;
+    if (!departments.length) return <div className="text-[12px] text-[#B8C0CC]">No departments available for this branch.</div>;
 
--- Role permissions table
-CREATE TABLE IF NOT EXISTS role_permissions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  role_id BIGINT UNSIGNED NOT NULL,
-  permission_id BIGINT UNSIGNED NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_role_permission (role_id, permission_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    return (
+        <div className="flex flex-wrap gap-2">
+            {departments.map(dept => {
+                const selected = selectedDepartments.find(d => d.id === dept.id);
+                return (
+                    <button
+                        key={dept.id}
+                        type="button"
+                        onClick={() => toggle(dept)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer font-['DM_Sans'] ${selected
+                            ? "bg-[#4A7C59] text-white border-[#4A7C59]"
+                            : "bg-[#F7F4EF] text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]/40 hover:text-[#4A7C59]"
+                            }`}
+                    >
+                        {selected ? <Check size={11} /> : <Plus size={11} />}
+                        {dept.name}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
 
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
-  name VARCHAR(100) NOT NULL,
-  description TEXT NULL,
-  price_monthly DECIMAL(10,2) NULL,
-  price_yearly DECIMAL(10,2) NULL,
-  max_users INT NULL,
-  max_branches INT NULL,
-  max_storage_mb INT NULL,
-  parent_id BIGINT UNSIGNED NULL,
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (parent_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
-  INDEX idx_subscriptions_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+function toInputDate(val) {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d)) return "";
+    return d.toISOString().slice(0, 10);
+}
 
-CREATE TABLE IF NOT EXISTS subscription_permissions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  subscription_id BIGINT UNSIGNED NOT NULL,
-  permission_id BIGINT UNSIGNED NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
-  FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_subscription_permission (subscription_id, permission_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+function initials(fname, lname) {
+    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
+}
+
+const EMPTY_FORM = {
+    phone: "", alt_phone: "", gender: "", date_of_birth: "",
+    profile_photo_url: "", address: "", city: "", state_id: "",
+    date_joined: "", date_left: "", employment_type: "full_time",
+    salary: "", salary_frequency: "monthly", specialization: "",
+    license_number: "", license_expiry: "", qualification: "",
+    emergency_contact_name: "", emergency_contact_phone: "",
+    emergency_contact_relationship: "", notes: "", status: "active",
+    new_role_id: "",
+};
+
+export default function StaffEdit() {
+    const { staffId } = useParams();
+    const navigate = useNavigate();
+    const { selectedClinic } = useClinicStore();
+    const { user } = useAuth();
+    const { getStaffProfileForEdit, updateStaffProfile } = useStaffStore();
+    const { roles, loading: rolesLoading, fetchRoles } = useRolestore();
+
+    const [profile, setProfile] = useState(null);
+    const [fetchLoading, setFetchLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(null);
+    const [isOwnProfile, setIsOwnProfile] = useState(false);
+
+    const [activeSection, setActiveSection] = useState("personal");
+    const [saving, setSaving] = useState(false);
+    const [saved, setSaved] = useState(false);
+    const [error, setError] = useState(null);
+    const [completedSections, setCompletedSections] = useState(new Set());
+    const [showFilePicker, setShowFilePicker] = useState(false);
+    const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+    const [form, setForm] = useState(EMPTY_FORM);
+    const [selectedDepartments, setSelectedDepartments] = useState([]);
+
+    const currentUserId = user?.id;
+
+    useEffect(() => { fetchRoles(); }, []);
+
+    useEffect(() => {
+        if (!staffId || !selectedClinic?.id) return;
+        setFetchLoading(true);
+        setFetchError(null);
+        getStaffProfileForEdit(selectedClinic.id, selectedClinic.branchId, staffId)
+            .then((data) => {
+                setProfile(data);
+                if (currentUserId && data?.user_id && String(data.user_id) === String(currentUserId)) {
+                    setIsOwnProfile(true);
+                    setFetchLoading(false);
+                    return;
+                }
+                setForm({
+                    phone: data.phone || "",
+                    alt_phone: data.alt_phone || "",
+                    gender: data.gender || "",
+                    date_of_birth: toInputDate(data.date_of_birth),
+                    profile_photo_url: data.profile_photo_url || "",
+                    address: data.address || "",
+                    city: data.city || "",
+                    state_id: data.state_id ? String(data.state_id) : "",
+                    date_joined: toInputDate(data.date_joined),
+                    date_left: toInputDate(data.date_left),
+                    employment_type: data.employment_type || "full_time",
+                    salary: data.salary ? String(data.salary) : "",
+                    salary_frequency: data.salary_frequency || "monthly",
+                    specialization: data.specialization || "",
+                    license_number: data.license_number || "",
+                    license_expiry: toInputDate(data.license_expiry),
+                    qualification: data.qualification || "",
+                    emergency_contact_name: data.emergency_contact_name || "",
+                    emergency_contact_phone: data.emergency_contact_phone || "",
+                    emergency_contact_relationship: data.emergency_contact_relationship || "",
+                    notes: data.notes || "",
+                    status: data.status || "active",
+                    new_role_id: data.role_id ? String(data.role_id) : "",
+                });
+                if (data.departments && Array.isArray(data.departments)) {
+                    setSelectedDepartments(data.departments.filter(Boolean));
+                }
+                setCompletedSections(new Set(SECTIONS.map(s => s.id)));
+                setFetchLoading(false);
+            })
+            .catch((err) => {
+                setFetchError(err?.response?.data?.message || err?.message || "Failed to load staff profile.");
+                setFetchLoading(false);
+            });
+    }, [staffId, selectedClinic?.id]);
+
+    const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+    const markComplete = (sectionId) => setCompletedSections(prev => new Set([...prev, sectionId]));
+
+    const handleSectionNext = (currentId, nextId) => {
+        markComplete(currentId);
+        setActiveSection(nextId);
+        setTimeout(() => {
+            document.getElementById(`section-${nextId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+    };
+
+    const handleSubmit = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            await updateStaffProfile(selectedClinic.id, selectedClinic.branchId, staffId, {
+                ...form,
+                salary: form.salary ? parseFloat(form.salary) : null,
+                state_id: form.state_id ? parseInt(form.state_id, 10) : null,
+                new_role_id: form.new_role_id ? parseInt(form.new_role_id, 10) : null,
+                department_ids: selectedDepartments.map(d => d.id),
+            });
+            setSaved(true);
+            setTimeout(() => navigate("/dashboard/staff"), 1800);
+        } catch (err) {
+            setError(err?.response?.data?.message || err?.message || "Failed to update profile.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (fetchLoading) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
+                    <Loader2 size={28} className="animate-spin" />
+                    <p className="text-[13px]">Loading staff profile…</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (isOwnProfile) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
+                <div className="text-center max-w-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-[#FBF6E9] flex items-center justify-center mx-auto mb-4">
+                        <Lock size={24} className="text-[#C9A84C]" />
+                    </div>
+                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">You can't edit your own profile</p>
+                    <p className="text-[13px] text-[#8A9BB0] mb-5">
+                        Staff profiles must be edited by an administrator.
+                    </p>
+                    <Link
+                        to="/dashboard/staff"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#F7F4EF] text-[#8A9BB0] text-[12px] font-semibold rounded-xl no-underline hover:bg-[#EEF2F7] transition-all border border-black/[0.09]"
+                    >
+                        <ArrowLeft size={13} />Back to staff
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    if (fetchError || !profile) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
+                <div className="text-center max-w-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-[#FAF0ED] flex items-center justify-center mx-auto mb-4">
+                        <XCircle size={24} className="text-[#E8927C]" />
+                    </div>
+                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Profile not found</p>
+                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This staff profile does not exist or you don't have access."}</p>
+                    <Link to="/dashboard/staff" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
+                        <ArrowLeft size={13} />Back to staff
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    if (saved) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
+                <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-[#E8F2EB] flex items-center justify-center mx-auto mb-4 animate-[popIn_0.3s_ease]">
+                        <style>{`@keyframes popIn{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}`}</style>
+                        <Check size={28} className="text-[#4A7C59]" />
+                    </div>
+                    <p className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] mb-1">Profile updated!</p>
+                    <p className="text-[13px] text-[#8A9BB0]">Redirecting back to staff…</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
+            <div className="sticky top-0 z-20 bg-white border-b border-black/[0.09] px-6 py-4 flex items-center gap-4">
+                <Link to="/dashboard/staff"
+                    className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-xl text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline">
+                    <ArrowLeft size={15} />
+                </Link>
+                <div className="flex-1 min-w-0">
+                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Edit Staff Profile</h1>
+                    <p className="text-[11px] text-[#8A9BB0] mt-0.5 truncate">
+                        {profile.fname} {profile.lname} · <span className="font-semibold text-[#4A7C59]">{profile.role_name}</span>
+                        {profile.branch_name && <> · {profile.branch_name}</>}
+                        {profile.staff_id && <> · <span className="font-mono">{profile.staff_id}</span></>}
+                    </p>
+                </div>
+                <button onClick={handleSubmit} disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer font-['DM_Sans'] disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0">
+                    {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                    {saving ? "Saving…" : "Save changes"}
+                </button>
+            </div>
+
+            <div className="max-w-[720px] mx-auto px-4 py-6 space-y-3">
+                <div className="bg-white rounded-2xl border border-black/[0.09] p-4 flex items-center gap-4 mb-2">
+                    <div
+                        className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-black/[0.09] cursor-pointer relative group"
+                        onClick={() => form.profile_photo_url && setShowPhotoViewer(true)}
+                    >
+                        {form.profile_photo_url ? (
+                            <>
+                                <img src={form.profile_photo_url} alt="" className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Eye size={14} className="text-white" />
+                                </div>
+                            </>
+                        ) : (
+                            <div className="w-full h-full bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] text-[16px] font-bold">
+                                {initials(profile.fname, profile.lname)}
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-semibold text-[#0D1117]">{profile.fname} {profile.lname}</p>
+                        <p className="text-[11px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
+                        {profile.staff_id && <p className="text-[10px] font-mono text-[#B8C0CC] mt-0.5">{profile.staff_id}</p>}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${form.status === "active" ? "bg-[#E8F2EB] text-[#2F5C3A]" :
+                            form.status === "suspended" ? "bg-[#FBF6E9] text-[#8b6a1a]" :
+                                form.status === "terminated" ? "bg-[#FAF0ED] text-[#c05c3c]" :
+                                    "bg-[#EEF2F7] text-[#4a6580]"
+                            }`}>
+                            {form.status}
+                        </span>
+                    </div>
+                </div>
+
+                {error && (
+                    <div className="flex items-center gap-2.5 px-4 py-3 bg-[#FAF0ED] border border-[#E8927C]/30 rounded-xl text-[13px] text-[#c05c3c]">
+                        <AlertCircle size={15} className="flex-shrink-0" />{error}
+                    </div>
+                )}
+
+                <div id="section-personal">
+                    <SectionCard title="Personal Info" icon={User} active={activeSection === "personal"} completed={completedSections.has("personal")} onClick={() => setActiveSection("personal")}>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Gender">
+                                <select className={inputCls} value={form.gender} onChange={set("gender")}>
+                                    <option value="">Select gender</option>
+                                    {GENDERS.map(g => <option key={g} value={g}>{g.charAt(0).toUpperCase() + g.slice(1)}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="Date of Birth">
+                                <input type="date" className={inputCls} value={form.date_of_birth} onChange={set("date_of_birth")} />
+                            </Field>
+                            <Field label="Status">
+                                <select className={inputCls} value={form.status} onChange={set("status")}>
+                                    {STAFF_STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="Profile Photo">
+                                <div className="flex items-center gap-2">
+                                    {form.profile_photo_url ? (
+                                        <div
+                                            className="w-10 h-10 rounded-xl overflow-hidden border border-black/[0.09] flex-shrink-0 cursor-pointer relative group"
+                                            onClick={() => setShowPhotoViewer(true)}
+                                        >
+                                            <img src={form.profile_photo_url} alt="Profile" className="w-full h-full object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Eye size={11} className="text-white" />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-xl bg-[#F7F4EF] border border-black/[0.09] flex items-center justify-center flex-shrink-0">
+                                            <User size={16} className="text-[#8A9BB0]" />
+                                        </div>
+                                    )}
+                                    <button type="button" onClick={() => setShowFilePicker(true)}
+                                        className="flex-1 flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-semibold text-[#4A7C59] bg-[#E8F2EB] border border-[#4A7C59]/20 rounded-xl hover:bg-[#4A7C59] hover:text-white transition-all cursor-pointer font-['DM_Sans']">
+                                        <ImageIcon size={13} />
+                                        {form.profile_photo_url ? "Change photo" : "Select photo"}
+                                    </button>
+                                </div>
+                            </Field>
+                            <Field label="Change Role" span={2}>
+                                <div className="flex items-start gap-2">
+                                    <Shield size={13} className="text-[#8A9BB0] flex-shrink-0 mt-3" />
+                                    <div className="flex-1">
+                                        <select
+                                            className={inputCls}
+                                            value={form.new_role_id}
+                                            onChange={set("new_role_id")}
+                                            disabled={rolesLoading}
+                                        >
+                                            <option value="">Keep current role ({profile.role_name})</option>
+                                            {roles
+                                                .filter(r => String(r.id) !== String(profile.role_id) && r.name !== "Super Admin")
+                                                .map(r => (
+                                                    <option key={r.id} value={String(r.id)}>{r.name}</option>
+                                                ))
+                                            }
+                                        </select>
+                                        <p className="text-[10px] text-[#B8C0CC] mt-1.5">
+                                            Role hierarchy is enforced — you can only assign roles below your own.
+                                        </p>
+                                    </div>
+                                </div>
+                            </Field>
+                            <Field label="Departments" span={2}>
+                                <DepartmentSelect
+                                    clinicId={selectedClinic?.id}
+                                    branchId={selectedClinic?.branchId || profile?.branch_id}
+                                    selectedDepartments={selectedDepartments}
+                                    onChange={setSelectedDepartments}
+                                />
+                                {selectedDepartments.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {selectedDepartments.map(d => (
+                                            <span key={d.id} className="flex items-center gap-1 text-[11px] px-2 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg font-semibold">
+                                                {d.name}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedDepartments(prev => prev.filter(p => p.id !== d.id))}
+                                                    className="ml-0.5 bg-transparent border-none cursor-pointer text-[#4A7C59] hover:text-[#c05c3c] transition-colors p-0"
+                                                >
+                                                    <X size={10} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </Field>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <button onClick={() => handleSectionNext("personal", "contact")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
+                                Next <ChevronRight size={13} />
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <div id="section-contact">
+                    <SectionCard title="Contact" icon={Phone} active={activeSection === "contact"} completed={completedSections.has("contact")} onClick={() => setActiveSection("contact")}>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Phone"><input className={inputCls} placeholder="08012345678" value={form.phone} onChange={set("phone")} /></Field>
+                            <Field label="Alt. Phone"><input className={inputCls} placeholder="08012345678" value={form.alt_phone} onChange={set("alt_phone")} /></Field>
+                            <Field label="City"><input className={inputCls} placeholder="Lagos" value={form.city} onChange={set("city")} /></Field>
+                            <Field label="State"><input className={inputCls} placeholder="State" value={form.state_id} onChange={set("state_id")} /></Field>
+                            <Field label="Address" span={2}>
+                                <textarea className={inputCls + " resize-none h-20"} placeholder="Full address…" value={form.address} onChange={set("address")} />
+                            </Field>
+                        </div>
+                        <div className="mt-4 flex justify-between">
+                            <button onClick={() => setActiveSection("personal")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
+                            <button onClick={() => handleSectionNext("contact", "employment")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
+                                Next <ChevronRight size={13} />
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <div id="section-employment">
+                    <SectionCard title="Employment" icon={Briefcase} active={activeSection === "employment"} completed={completedSections.has("employment")} onClick={() => setActiveSection("employment")}>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Employment Type">
+                                <select className={inputCls} value={form.employment_type} onChange={set("employment_type")}>
+                                    {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="Date Joined"><input type="date" className={inputCls} value={form.date_joined} onChange={set("date_joined")} /></Field>
+                            <Field label="Salary">
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A9BB0] text-[13px] font-semibold pointer-events-none">₦</span>
+                                    <input type="number" className={inputCls + " pl-7"} placeholder="0.00" value={form.salary} onChange={set("salary")} />
+                                </div>
+                            </Field>
+                            <Field label="Salary Frequency">
+                                <select className={inputCls} value={form.salary_frequency} onChange={set("salary_frequency")}>
+                                    {SALARY_FREQUENCIES.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="Date Left (if applicable)" span={2}>
+                                <input type="date" className={inputCls} value={form.date_left} onChange={set("date_left")} />
+                            </Field>
+                        </div>
+                        <div className="mt-4 flex justify-between">
+                            <button onClick={() => setActiveSection("contact")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
+                            <button onClick={() => handleSectionNext("employment", "medical")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
+                                Next <ChevronRight size={13} />
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <div id="section-medical">
+                    <SectionCard title="Professional" icon={HeartPulse} active={activeSection === "medical"} completed={completedSections.has("medical")} onClick={() => setActiveSection("medical")}>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Specialization"><input className={inputCls} placeholder="e.g. Cardiology" value={form.specialization} onChange={set("specialization")} /></Field>
+                            <Field label="Qualification"><input className={inputCls} placeholder="e.g. MBBS, RN" value={form.qualification} onChange={set("qualification")} /></Field>
+                            <Field label="License Number"><input className={inputCls} placeholder="MDC-123456" value={form.license_number} onChange={set("license_number")} /></Field>
+                            <Field label="License Expiry"><input type="date" className={inputCls} value={form.license_expiry} onChange={set("license_expiry")} /></Field>
+                        </div>
+                        <div className="mt-4 flex justify-between">
+                            <button onClick={() => setActiveSection("employment")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
+                            <button onClick={() => handleSectionNext("medical", "emergency")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
+                                Next <ChevronRight size={13} />
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <div id="section-emergency">
+                    <SectionCard title="Emergency Contact" icon={ShieldCheck} active={activeSection === "emergency"} completed={completedSections.has("emergency")} onClick={() => setActiveSection("emergency")}>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Field label="Contact Name"><input className={inputCls} placeholder="Full name" value={form.emergency_contact_name} onChange={set("emergency_contact_name")} /></Field>
+                            <Field label="Relationship"><input className={inputCls} placeholder="e.g. Spouse, Parent" value={form.emergency_contact_relationship} onChange={set("emergency_contact_relationship")} /></Field>
+                            <Field label="Contact Phone" span={2}><input className={inputCls} placeholder="08012345678" value={form.emergency_contact_phone} onChange={set("emergency_contact_phone")} /></Field>
+                        </div>
+                        <div className="mt-4 flex justify-between">
+                            <button onClick={() => setActiveSection("medical")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
+                            <button onClick={() => handleSectionNext("emergency", "notes")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans']">
+                                Next <ChevronRight size={13} />
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <div id="section-notes">
+                    <SectionCard title="Notes" icon={FileText} active={activeSection === "notes"} completed={completedSections.has("notes")} onClick={() => setActiveSection("notes")}>
+                        <Field label="Internal Notes">
+                            <textarea className={inputCls + " resize-none h-28"} placeholder="Any additional notes about this staff member…" value={form.notes} onChange={set("notes")} />
+                        </Field>
+                        <div className="mt-4 flex justify-between">
+                            <button onClick={() => setActiveSection("emergency")} className="text-[12px] font-semibold text-[#8A9BB0] bg-transparent border-none cursor-pointer hover:text-[#0D1117] transition-colors font-['DM_Sans']">Back</button>
+                            <button onClick={() => { markComplete("notes"); handleSubmit(); }} disabled={saving}
+                                className="flex items-center gap-2 px-5 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#2F5C3A] transition-all font-['DM_Sans'] disabled:opacity-60">
+                                {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                                {saving ? "Saving…" : "Save changes"}
+                            </button>
+                        </div>
+                    </SectionCard>
+                </div>
+
+                <p className="text-center text-[11px] text-[#B8C0CC] py-2">
+                    Staff Profile #{staffId} · Role changes are enforced by hierarchy.
+                </p>
+            </div>
+
+            <FilePickerModal
+                isOpen={showFilePicker}
+                onClose={() => setShowFilePicker(false)}
+                clinicId={selectedClinic?.id}
+                allowedTypes={["image"]}
+                onSelectFile={(file) => {
+                    setForm(f => ({ ...f, profile_photo_url: file.file_url }));
+                    setShowFilePicker(false);
+                }}
+            />
+
+            {showPhotoViewer && form.profile_photo_url && (
+                <ImagePreview
+                    isOpen={showPhotoViewer}
+                    onClose={() => setShowPhotoViewer(false)}
+                    asset={{
+                        file_url: form.profile_photo_url,
+                        file_original_name: `${profile.fname} ${profile.lname}`,
+                        fname: profile.fname,
+                        lname: profile.lname,
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+StaffView.jsx:
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import {
+    ArrowLeft, User, Phone, Briefcase, ShieldCheck,
+    FileText, Loader2, HeartPulse,
+    XCircle, Edit2, Mail, Calendar, Building2,
+    Hash, CreditCard, MapPin, Users, LayoutGrid,
+} from "lucide-react";
+import { useStaffStore, useClinicStore } from "../../store/store";
+import ImagePreview from "../ui/file-manager/ImagePreview";
+import { useAuth } from "../../context/Auth/UseAuth";
+
+function initials(fname, lname) {
+    return `${(fname?.[0] || "").toUpperCase()}${(lname?.[0] || "").toUpperCase()}`;
+}
+
+function fmtDate(val) {
+    if (!val) return "—";
+    const d = new Date(val);
+    if (isNaN(d)) return "—";
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function StatusBadge({ status }) {
+    const map = {
+        active: "bg-[#E8F2EB] text-[#2F5C3A]",
+        suspended: "bg-[#FBF6E9] text-[#8b6a1a]",
+        terminated: "bg-[#FAF0ED] text-[#c05c3c]",
+        resigned: "bg-[#EEF2F7] text-[#4a6580]",
+    };
+    return (
+        <span className={`text-[11px] font-bold px-3 py-1.5 rounded-full ${map[status] || "bg-[#EEF2F7] text-[#4a6580]"}`}>
+            {status ? status.charAt(0).toUpperCase() + status.slice(1) : "—"}
+        </span>
+    );
+}
+
+function InfoRow({ label, value, icon: Icon }) {
+    return (
+        <div className="flex items-start gap-3 py-3 border-b border-black/[0.05] last:border-0">
+            {Icon && <Icon size={14} className="text-[#8A9BB0] mt-0.5 flex-shrink-0" />}
+            <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#B8C0CC] mb-0.5">{label}</p>
+                <p className="text-[13px] text-[#0D1117] font-medium break-words">{value || "—"}</p>
+            </div>
+        </div>
+    );
+}
+
+function SectionCard({ title, icon: Icon, children }) {
+    return (
+        <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-black/[0.06]">
+                <div className="w-8 h-8 rounded-xl bg-[#E8F2EB] flex items-center justify-center flex-shrink-0">
+                    <Icon size={14} className="text-[#4A7C59]" />
+                </div>
+                <span className="text-[13px] font-semibold text-[#0D1117] font-['DM_Sans']">{title}</span>
+            </div>
+            <div className="px-5 py-2">{children}</div>
+        </div>
+    );
+}
+
+export default function StaffView() {
+    const { staffId } = useParams();
+    const navigate = useNavigate();
+    const { selectedClinic } = useClinicStore();
+    const { user } = useAuth();
+    const { getStaffProfileForEdit } = useStaffStore();
+
+    const [profile, setProfile] = useState(null);
+    const [fetchLoading, setFetchLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(null);
+    const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+
+    const currentUserId = user?.id;
+    const isOwnProfile = profile && currentUserId && String(profile.user_id) === String(currentUserId);
+
+    useEffect(() => {
+        if (!staffId || !selectedClinic?.id) return;
+        setFetchLoading(true);
+        setFetchError(null);
+        getStaffProfileForEdit(selectedClinic.id, selectedClinic.branchId, staffId)
+            .then((data) => {
+                setProfile(data);
+                setFetchLoading(false);
+            })
+            .catch((err) => {
+                setFetchError(err?.response?.data?.message || err?.message || "Failed to load staff profile.");
+                setFetchLoading(false);
+            });
+    }, [staffId, selectedClinic?.id]);
+
+    if (fetchLoading) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
+                    <Loader2 size={28} className="animate-spin" />
+                    <p className="text-[13px]">Loading staff profile…</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (fetchError || !profile) {
+        return (
+            <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] flex items-center justify-center p-6">
+                <div className="text-center max-w-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-[#FAF0ED] flex items-center justify-center mx-auto mb-4">
+                        <XCircle size={24} className="text-[#E8927C]" />
+                    </div>
+                    <p className="font-['DM_Serif_Display'] text-[20px] text-[#0D1117] mb-1">Profile not found</p>
+                    <p className="text-[13px] text-[#8A9BB0] mb-5">{fetchError || "This staff profile does not exist."}</p>
+                    <Link to="/dashboard/staff" className="inline-flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl no-underline hover:bg-[#2F5C3A] transition-all">
+                        <ArrowLeft size={13} />Back to staff
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-[#F7F4EF] font-['DM_Sans'] text-[#0D1117]">
+            <div className="sticky top-0 z-20 bg-white border-b border-black/[0.09] px-6 py-4 flex items-center gap-4">
+                <Link to="/dashboard/staff"
+                    className="w-8 h-8 flex items-center justify-center bg-[#F7F4EF] rounded-xl text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline">
+                    <ArrowLeft size={15} />
+                </Link>
+                <div className="flex-1 min-w-0">
+                    <h1 className="font-['DM_Serif_Display'] text-[18px] text-[#0D1117] leading-tight">Staff Profile</h1>
+                    <p className="text-[11px] text-[#8A9BB0] mt-0.5 truncate">
+                        {profile.fname} {profile.lname} · <span className="font-semibold text-[#4A7C59]">{profile.role_name || "—"}</span>
+                        {profile.branch_name && <> · {profile.branch_name}</>}
+                    </p>
+                </div>
+                {!isOwnProfile && (
+                    <Link
+                        to={`/dashboard/staff/edit/${staffId}`}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all no-underline flex-shrink-0"
+                    >
+                        <Edit2 size={13} />Edit Profile
+                    </Link>
+                )}
+            </div>
+
+            <div className="max-w-[720px] mx-auto px-4 py-6 space-y-4">
+                <div className="bg-white rounded-2xl border border-black/[0.09] p-5">
+                    <div className="flex items-start gap-4">
+                        <div
+                            className="w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0 border border-black/[0.09] cursor-pointer relative group"
+                            onClick={() => profile.profile_photo_url && setShowPhotoViewer(true)}
+                        >
+                            {profile.profile_photo_url ? (
+                                <>
+                                    <img src={profile.profile_photo_url} alt="" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <User size={16} className="text-white" />
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="w-full h-full bg-[#E8F2EB] flex items-center justify-center text-[#4A7C59] text-[20px] font-bold font-['DM_Serif_Display']">
+                                    {initials(profile.fname, profile.lname)}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                                <div>
+                                    <h2 className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] leading-tight">
+                                        {profile.fname} {profile.lname}
+                                    </h2>
+                                    <p className="text-[13px] text-[#8A9BB0] mt-0.5">{profile.email}</p>
+                                </div>
+                                <StatusBadge status={profile.status} />
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-3">
+                                {profile.role_name && (
+                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#E8F2EB] text-[#2F5C3A] rounded-lg">
+                                        <ShieldCheck size={11} />{profile.role_name}
+                                    </span>
+                                )}
+                                {profile.staff_id && (
+                                    <span className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 bg-[#F7F4EF] text-[#8A9BB0] rounded-lg">
+                                        <Hash size={11} />{profile.staff_id}
+                                    </span>
+                                )}
+                                {profile.branch_name && (
+                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#EEF2F7] text-[#4a6580] rounded-lg">
+                                        <Building2 size={11} />{profile.branch_name}
+                                    </span>
+                                )}
+                                {profile.employment_type && (
+                                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#FBF6E9] text-[#8b6a1a] rounded-lg">
+                                        <Briefcase size={11} />{profile.employment_type.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}
+                                    </span>
+                                )}
+                                {Array.isArray(profile.departments) && profile.departments.filter(Boolean).map(d => (
+                                    <span key={d.id} className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 bg-[#F0EBF8] text-[#6b3fa0] rounded-lg">
+                                        <LayoutGrid size={11} />{d.name}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <SectionCard title="Personal Info" icon={User}>
+                        <InfoRow label="Gender" value={profile.gender ? profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1) : null} icon={User} />
+                        <InfoRow label="Date of Birth" value={fmtDate(profile.date_of_birth)} icon={Calendar} />
+                        <InfoRow label="Specialization" value={profile.specialization} icon={HeartPulse} />
+                        <InfoRow label="Qualification" value={profile.qualification} icon={FileText} />
+                    </SectionCard>
+
+                    <SectionCard title="Contact" icon={Phone}>
+                        <InfoRow label="Phone" value={profile.phone} icon={Phone} />
+                        <InfoRow label="Alt. Phone" value={profile.alt_phone} icon={Phone} />
+                        <InfoRow label="Email" value={profile.email} icon={Mail} />
+                        <InfoRow label="City" value={profile.city} icon={MapPin} />
+                        <InfoRow label="Address" value={profile.address} icon={MapPin} />
+                    </SectionCard>
+
+                    <SectionCard title="Employment" icon={Briefcase}>
+                        <InfoRow label="Date Joined" value={fmtDate(profile.date_joined)} icon={Calendar} />
+                        <InfoRow label="Date Left" value={fmtDate(profile.date_left)} icon={Calendar} />
+                        <InfoRow label="Employment Type" value={profile.employment_type?.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())} icon={Briefcase} />
+                        <InfoRow label="Salary Frequency" value={profile.salary_frequency ? profile.salary_frequency.charAt(0).toUpperCase() + profile.salary_frequency.slice(1) : null} icon={CreditCard} />
+                        <InfoRow label="Salary" value={profile.salary ? `₦${Number(profile.salary).toLocaleString()}` : null} icon={CreditCard} />
+                    </SectionCard>
+
+                    <SectionCard title="Professional" icon={HeartPulse}>
+                        <InfoRow label="License Number" value={profile.license_number} icon={Hash} />
+                        <InfoRow label="License Expiry" value={fmtDate(profile.license_expiry)} icon={Calendar} />
+                        <InfoRow label="Qualification" value={profile.qualification} icon={FileText} />
+                    </SectionCard>
+
+                    <SectionCard title="Emergency Contact" icon={ShieldCheck}>
+                        <InfoRow label="Name" value={profile.emergency_contact_name} icon={User} />
+                        <InfoRow label="Relationship" value={profile.emergency_contact_relationship} icon={Users} />
+                        <InfoRow label="Phone" value={profile.emergency_contact_phone} icon={Phone} />
+                    </SectionCard>
+
+                    {Array.isArray(profile.departments) && profile.departments.filter(Boolean).length > 0 && (
+                        <SectionCard title="Departments" icon={LayoutGrid}>
+                            <div className="py-3 flex flex-wrap gap-2">
+                                {profile.departments.filter(Boolean).map(d => (
+                                    <span
+                                        key={d.id}
+                                        className="flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 bg-[#F0EBF8] text-[#6b3fa0] rounded-xl border border-[#6b3fa0]/10"
+                                    >
+                                        <LayoutGrid size={11} />{d.name}
+                                    </span>
+                                ))}
+                            </div>
+                        </SectionCard>
+                    )}
+
+                    {profile.notes && (
+                        <SectionCard title="Notes" icon={FileText}>
+                            <div className="py-3">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#B8C0CC] mb-1.5">Internal Notes</p>
+                                <p className="text-[13px] text-[#0D1117] whitespace-pre-wrap">{profile.notes}</p>
+                            </div>
+                        </SectionCard>
+                    )}
+                </div>
+
+                <p className="text-center text-[11px] text-[#B8C0CC] py-2">
+                    Staff Profile #{staffId}
+                </p>
+            </div>
+
+            {showPhotoViewer && profile.profile_photo_url && (
+                <ImagePreview
+                    isOpen={showPhotoViewer}
+                    onClose={() => setShowPhotoViewer(false)}
+                    asset={{
+                        file_url: profile.profile_photo_url,
+                        file_original_name: `${profile.fname} ${profile.lname}`,
+                        mime_type: "image/jpeg",
+                        fname: profile.fname,
+                        lname: profile.lname,
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+StaffTable.jsx:
+import EmptyState from "./EmptyState";
+import { Plus, Building2, Settings, Users, Loader2 } from "lucide-react"
+import Avatar from "./Avatar";
+import { Link } from "react-router-dom";
+import StaffRowMenu from "./StaffRowMenu";
+
+const STATUS_COLORS = {
+    active: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    suspended: "bg-amber-50  text-amber-700  border border-amber-200",
+    terminated: "bg-red-50    text-red-700    border border-red-200",
+    resigned: "bg-slate-100 text-slate-600  border border-slate-200",
+};
 
 
-CREATE TABLE IF NOT EXISTS clinics (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
-  name VARCHAR(200) NOT NULL,
-  email VARCHAR(190) NULL,
-  phone VARCHAR(50) NULL,
-  address TEXT NULL,
-  city VARCHAR(190) NULL,
-  state_id BIGINT UNSIGNED NULL,
-  owner_id BIGINT UNSIGNED NOT NULL,
-  subscription_id BIGINT UNSIGNED NULL,
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
-  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
-  INDEX idx_clinics_subscription (subscription_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS clinic_subscriptions (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  clinic_id BIGINT UNSIGNED NOT NULL,
-  subscription_id BIGINT UNSIGNED NOT NULL,
-  start_date DATETIME NOT NULL,
-  end_date DATETIME NULL,
-  price_paid DECIMAL(10,2) NULL,
-  status VARCHAR(50) DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
-  FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
-  INDEX idx_clinic_subs_clinic (clinic_id),
-  INDEX idx_clinic_subs_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+export default function StaffTable({ staff, loading, pagination, currentUserId, onPageChange, onPhotoClick, onInvite }) {
 
--- Branches table
-CREATE TABLE IF NOT EXISTS branches (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
-  clinic_id BIGINT UNSIGNED NOT NULL,
-  name VARCHAR(150) NOT NULL,
-  address TEXT NULL,
-  phone VARCHAR(50) NULL,
-  city  VARCHAR(150) DEFAULT NULL,
-  state_id BIGINT UNSIGNED NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
-  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    if (loading && staff.length === 0)
+        return <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-[#8A9BB0]" /></div>;
 
-CREATE TABLE IF NOT EXISTS branch_users (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  branch_id BIGINT UNSIGNED NOT NULL,
-  user_id BIGINT UNSIGNED NOT NULL,
-  role_id BIGINT UNSIGNED NOT NULL,
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_branch_user (branch_id, user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    if (!loading && staff.length === 0)
+        return (
+            <EmptyState
+                icon={Users} title="No staff found"
+                desc="No staff profiles match your search or have been set up yet."
+                action={
+                    <button onClick={onInvite}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] transition-all border-none cursor-pointer">
+                        <Plus size={13} /> Invite staff
+                    </button>
+                }
+            />
+        );
 
-CREATE TABLE IF NOT EXISTS staff_profiles (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL UNIQUE,
-  clinic_id BIGINT UNSIGNED NULL,
+    return (
+        <>
+            <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
+                {/* overflow-x-auto enables horizontal scroll on small screens */}
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[620px] border-collapse">
+                        <thead>
+                            <tr className="border-b border-black/[0.06]">
+                                {["", "Name", "Role", "Branch", "Status", ""].map((h, i) => (
+                                    <th key={i}
+                                        className="text-left text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0] px-4 py-3 whitespace-nowrap font-['DM_Sans'] first:pl-5 last:pr-5">
+                                        {h}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {staff.map((member) => {
+                                const isYou = member.user_id === currentUserId;
+                                return (
+                                    <tr key={member.staff_profile_id || member.user_id}
+                                        className="border-b border-black/[0.04] hover:bg-[#FAFAF8] transition-colors last:border-b-0">
 
-  staff_id VARCHAR(50) NULL UNIQUE,
+                                        {/* Avatar */}
+                                        <td className="pl-5 pr-3 py-3.5 w-10">
+                                            <Avatar
+                                                fname={member.fname} lname={member.lname}
+                                                photoUrl={member.profile_photo_url} size={10}
+                                                onClick={member.profile_photo_url ? () => onPhotoClick(member) : undefined}
+                                            />
+                                        </td>
 
-  phone VARCHAR(50) NULL,
-  alt_phone VARCHAR(50) NULL,
-  gender ENUM('male','female','other') NULL,
-  date_of_birth DATE NULL,
-  profile_photo_url VARCHAR(512) NULL,
+                                        {/* Name + email */}
+                                        <td className="px-4 py-3.5 min-w-[180px] max-w-[240px]">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-[13px] font-semibold text-[#0D1117]">
+                                                    {member.fname} {member.lname}
+                                                </span>
+                                                {isYou && (
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#4A7C59] text-white leading-none">
+                                                        you
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-[11px] text-[#8A9BB0] truncate">{member.email}</p>
+                                            {member.staff_id && <p className="text-[10px] text-[#B8C0CC] font-mono">{member.staff_id}</p>}
+                                        </td>
 
-  address TEXT NULL,
-  city VARCHAR(150) NULL,
-  state_id BIGINT UNSIGNED NULL,
+                                        {/* Role */}
+                                        <td className="px-4 py-3.5 whitespace-nowrap">
+                                            <span className="text-[11px] font-semibold text-[#4a6580] bg-[#EEF2F7] px-2.5 py-1 rounded-full">
+                                                {member.role_name || "—"}
+                                            </span>
+                                        </td>
 
-  date_joined DATE NULL,
-  date_left DATE NULL,
+                                        {/* Branch */}
+                                        <td className="px-4 py-3.5 whitespace-nowrap">
+                                            <div className="flex items-center gap-1 text-[11px] text-[#8A9BB0]">
+                                                <Building2 size={11} className="flex-shrink-0" />
+                                                {member.branch_name || "—"}
+                                            </div>
+                                        </td>
 
-  employment_type ENUM('full_time','part_time','contract','locum') NULL,
-  status ENUM('active','suspended','terminated','resigned') DEFAULT 'active',
+                                        {/* Status */}
+                                        <td className="px-4 py-3.5 whitespace-nowrap">
+                                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${STATUS_COLORS[member.staff_status] || "bg-[#EEF2F7] text-[#4a6580]"
+                                                }`}>
+                                                {member.staff_status || "active"}
+                                            </span>
+                                        </td>
 
-  salary DECIMAL(12,2) NULL,
-  salary_frequency ENUM('monthly','weekly','daily','hourly') DEFAULT 'monthly',
+                                        {/* Actions */}
+                                        <td className="pr-5 pl-2 py-3.5 whitespace-nowrap">
+                                            <div className="flex items-center gap-1.5">
+                                                {member.staff_profile_id && !isYou && (
+                                                    <Link
+                                                        to={`/dashboard/staff/edit/${member.staff_profile_id}`}
+                                                        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#8A9BB0] hover:bg-[#E8F2EB] hover:text-[#4A7C59] transition-all no-underline"
+                                                    >
+                                                        <Settings size={13} />
+                                                    </Link>
+                                                )}
+                                                <StaffRowMenu member={member} isYou={isYou} />
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-  specialization VARCHAR(150) NULL,
-  license_number VARCHAR(100) NULL,
-  license_expiry DATE NULL,
-  qualification VARCHAR(255) NULL,
+            {pagination?.totalPages > 1 && <PaginationBar pagination={pagination} onPageChange={onPageChange} />}
+        </>
+    );
+}
 
-  emergency_contact_name VARCHAR(150) NULL,
-  emergency_contact_phone VARCHAR(50) NULL,
-  emergency_contact_relationship VARCHAR(80) NULL,
+StaffRowMenu.jsx:
+import { Link } from "react-router-dom";
+import DropdownMenu from "./DropdownMenu";
+import { Settings, MoreVertical, Eye } from "lucide-react";
 
-  notes TEXT NULL,
-
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
-  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
-
-  INDEX idx_staff_status (status),
-  INDEX idx_staff_specialization (specialization)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-
-CREATE TABLE IF NOT EXISTS branch_user_invites (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-
-  branch_id BIGINT UNSIGNED NOT NULL,
-  clinic_id BIGINT UNSIGNED NOT NULL,
-
-  email VARCHAR(190) NOT NULL,
-  role_id BIGINT UNSIGNED NOT NULL,
-
-  invited_by BIGINT UNSIGNED NOT NULL,
-
-  token CHAR(64) NOT NULL UNIQUE,
-
-  status ENUM('pending','accepted','declined','expired') DEFAULT 'pending',
-
-  expires_at DATETIME NOT NULL,
-  accepted_at DATETIME NULL, 
-
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
-  FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-  FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE,
-
-  INDEX idx_invite_email (email),
-  INDEX idx_invite_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS departments (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
-
-  branch_id BIGINT UNSIGNED NOT NULL,
-
-  name VARCHAR(150) NOT NULL,
-  description TEXT NULL,
-
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-
-  UNIQUE KEY uq_branch_department (branch_id, name),
-
-  INDEX idx_department_branch (branch_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+export default function StaffRowMenu({ member, isYou }) {
+    if (isYou) return null;
+    return (
+        <DropdownMenu
+            trigger={(handleOpen) => (
+                <button onClick={handleOpen} className="icon-btn">
+                    <MoreVertical size={14} />
+                </button>
+            )}
+        >
+            {member.staff_profile_id && (
+                <Link to={`/dashboard/staff/edit/${member.staff_profile_id}`} className="menu-item">
+                    <Settings size={13} className="text-[#8A9BB0]" /> Edit profile
+                </Link>
+            )}
+            {member.staff_profile_id && (
+                <Link to={`/dashboard/staff/view/${member.staff_profile_id}`} className="menu-item">
+                    <Eye size={13} className="text-[#8A9BB0]" /> View details
+                </Link>
+            )}
+        </DropdownMenu>
+    );
+}
 
 
-CREATE TABLE IF NOT EXISTS staff_departments (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+prompt:
+this is not syncing well,
 
-  staff_profile_id BIGINT UNSIGNED NOT NULL,
-  department_id BIGINT UNSIGNED NOT NULL,
+the Role hierarchy  is not working well
+and how can someone that has a role like branch manager etc be editing there own data why? only owner is allowed
+and also if i swich branch it is not fetching the new data....
 
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (staff_profile_id) REFERENCES staff_profiles(id) ON DELETE CASCADE,
-  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
-
-  UNIQUE KEY uq_staff_department (staff_profile_id, department_id),
-
-  INDEX idx_staff_department_staff (staff_profile_id),
-  INDEX idx_staff_department_department (department_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS clinic_assets (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  clinic_id BIGINT UNSIGNED NOT NULL,
-  user_id BIGINT UNSIGNED NOT NULL,
-  file_uuid CHAR(36) NOT NULL UNIQUE,
-  file_original_name VARCHAR(255) NULL,
-  file_name VARCHAR(255) NULL,
-  file_url VARCHAR(512) NOT NULL,
-  file_size BIGINT UNSIGNED NULL,
-  mime_type VARCHAR(120) NULL,
-  extension VARCHAR(20) NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted_at TIMESTAMP NULL,
-  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_clinic_assets_clinic (clinic_id),
-  INDEX idx_clinic_assets_user (user_id),
-  INDEX idx_clinic_assets_deleted (deleted_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS asset_transfers (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  asset_id BIGINT UNSIGNED NOT NULL,
-  sender_id BIGINT UNSIGNED NOT NULL,
-  receiver_id BIGINT UNSIGNED NOT NULL,
-  message VARCHAR(500) NULL,
-  status ENUM('sent','received','declined') DEFAULT 'sent',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  received_at DATETIME NULL,
-  FOREIGN KEY (asset_id) REFERENCES clinic_assets(id) ON DELETE CASCADE,
-  FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_transfer_sender (sender_id),
-  INDEX idx_transfer_receiver (receiver_id),
-  INDEX idx_transfer_asset (asset_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+give me full code of it fixed

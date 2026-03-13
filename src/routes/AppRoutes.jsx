@@ -17,9 +17,10 @@ import { useAuth } from "../context/Auth/UseAuth";
 const Login = lazy(() => import("../components/auth/Login"));
 const Register = lazy(() => import("../components/auth/Register"));
 const VerifyEmail = lazy(() => import("../components/auth/VerifyEmail"));
-const StaffInvite = lazy(() => import("../components/staffs/StaffInvite"));
-const StaffSetUp = lazy(() => import("../components/staffs/StaffSetUp"));
-const StaffEdit = lazy(() => import("../components/staffs/StaffEdit"));
+const StaffInvite = lazy(() => import("../components/staff/StaffInvite"));
+const StaffSetUp = lazy(() => import("../components/staff/StaffSetUp"));
+const StaffEdit = lazy(() => import("../components/staff/StaffEdit"));
+const StaffView = lazy(() => import("../components/staff/StaffView"));
 
 // Main
 // const Appointments   = lazy(() => import("../pages/Appointments"));
@@ -189,6 +190,7 @@ export default function AppRoutes() {
               <Route path="/dashboard/staff" element={<Staff />} />
               <Route path="/dashboard/staff/set-up/:inviteId" element={<StaffSetUp />} />
               <Route path="/dashboard/staff/edit/:staffId" element={<StaffEdit />} />
+              <Route path="/dashboard/staff/view/:staffId" element={<StaffView />} />
               {/* <Route path="/dashboard/shifts"         element={<Shifts />} /> */}
             </Route>
             {/* 
