@@ -1,1206 +1,11 @@
-ImagePreview.jsx:
-import { useState, useEffect, useRef, useCallback } from "react";
-import {
-    X, Download, ZoomIn, ZoomOut, RotateCw, Info, ChevronLeft, ChevronRight,
-    Calendar, HardDrive, FileType, User, Maximize2, Minimize2,
-    FileText, File, ExternalLink, Copy, Check, FlipHorizontal,
-    Sun, Moon, Grid, Printer, Share2, RefreshCw,
-} from "lucide-react";
-
-/* ─── helpers ─────────────────────────────────────────────── */
-
-function formatFileSize(bytes) {
-    if (!bytes) return "—";
-    const kb = bytes / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-function fmtDateTime(d) {
-    if (!d) return "—";
-    const dt = typeof d === "string" ? new Date(d) : d;
-    if (isNaN(dt)) return "—";
-    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()} at ${dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-function isPdf(asset) {
-    return asset?.mime_type === "application/pdf" || (asset?.extension || "").toLowerCase() === "pdf";
-}
-
-function isImage(asset) {
-    return asset?.mime_type?.startsWith("image/") || asset?.mime_type === "image";
-}
-
-/* Robust download: fetch → blob → anchor, with fallback */
-async function downloadAsset(asset) {
-    if (!asset?.file_url) return;
-    const filename = asset.file_original_name || asset.file_name || "download";
-    try {
-        const res = await fetch(asset.file_url, { mode: "cors" });
-        if (!res.ok) throw new Error("fetch failed");
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(blobUrl);
-        }, 500);
-    } catch {
-        /* CORS fallback: open then try anchor trick */
-        const a = document.createElement("a");
-        a.href = asset.file_url;
-        a.download = filename;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    }
-}
-
-/* ─── Tooltip ─────────────────────────────────────────────── */
-function Tip({ label, children }) {
-    return (
-        <div className="relative group/tip">
-            {children}
-            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded-md text-[10px] font-semibold whitespace-nowrap bg-[#1a1f2e] text-white/80 border border-white/10 opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 z-50">
-                {label}
-            </span>
-        </div>
-    );
-}
-
-/* ─── Toolbar Button ──────────────────────────────────────── */
-function TBtn({ onClick, active, danger, title, children, className = "" }) {
-    return (
-        <Tip label={title}>
-            <button
-                onClick={onClick}
-                className={`
-                    w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 border-none cursor-pointer text-[13px] font-semibold flex-shrink-0
-                    ${active ? "bg-[#4A7C59] text-white shadow-[0_0_0_1px_rgba(74,124,89,0.5)]" : ""}
-                    ${danger ? "text-white hover:bg-red-500/20 hover:text-red-400 bg-white/8" : ""}
-                    ${!active && !danger ? "bg-white/8 text-white/70 hover:bg-white/15 hover:text-white" : ""}
-                    ${className}
-                `}
-            >
-                {children}
-            </button>
-        </Tip>
-    );
-}
-
-/* ─── PDF Viewer ──────────────────────────────────────────── */
-function PdfViewer({ asset, fullscreen }) {
-    const [mode, setMode] = useState("embed"); // "embed" | "object" | "fallback"
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(null);
-
-    useEffect(() => { setMode("embed"); setPage(1); }, [asset?.id]);
-
-    if (mode === "fallback") {
-        return (
-            <div className="flex flex-col items-center gap-5 text-white/60 p-10">
-                <div className="w-20 h-20 rounded-2xl bg-white/8 flex items-center justify-center">
-                    <FileText size={36} className="text-white/30" />
-                </div>
-                <div className="text-center">
-                    <p className="text-[15px] font-semibold text-white/80 mb-1">{asset.file_original_name}</p>
-                    <p className="text-[12px] text-white/40 mb-4">PDF preview unavailable in this browser</p>
-                </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => downloadAsset(asset)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#3a6448] transition-all"
-                    >
-                        <Download size={14} /> Download PDF
-                    </button>
-                    <button
-                        onClick={() => window.open(asset.file_url, "_blank")}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-white/10 text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/15 transition-all"
-                    >
-                        <ExternalLink size={14} /> Open in browser
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col w-full h-full">
-            {mode === "embed" ? (
-                <embed
-                    src={`${asset.file_url}#toolbar=1&navpanes=1&scrollbar=1&view=FitH`}
-                    type="application/pdf"
-                    className="w-full flex-1 border-none"
-                    style={{
-                        minHeight: "72vh",
-                        maxWidth: fullscreen ? "100%" : "960px",
-                        margin: "0 auto",
-                        borderRadius: "12px",
-                    }}
-                    onError={() => setMode("object")}
-                />
-            ) : (
-                <object
-                    data={`${asset.file_url}#toolbar=1`}
-                    type="application/pdf"
-                    className="w-full flex-1 border-none"
-                    style={{
-                        minHeight: "72vh",
-                        maxWidth: fullscreen ? "100%" : "960px",
-                        margin: "0 auto",
-                        borderRadius: "12px",
-                    }}
-                    onError={() => setMode("fallback")}
-                >
-                    {/* inner fallback for browsers without PDF plugin */}
-                    <iframe
-                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(asset.file_url)}&embedded=true`}
-                        className="w-full border-none"
-                        style={{ minHeight: "72vh", borderRadius: "12px" }}
-                        onError={() => setMode("fallback")}
-                        title={asset.file_original_name}
-                    />
-                </object>
-            )}
-            <p className="text-[11px] text-white/25 text-center mt-2 flex-shrink-0">
-                Having trouble?{" "}
-                <button
-                    onClick={() => window.open(asset.file_url, "_blank")}
-                    className="text-white/45 underline bg-transparent border-none cursor-pointer"
-                >Open in new tab</button>
-                {" "}or{" "}
-                <button
-                    onClick={() => downloadAsset(asset)}
-                    className="text-white/45 underline bg-transparent border-none cursor-pointer"
-                >download</button>
-            </p>
-        </div>
-    );
-}
-
-/* ─── Generic File Fallback ───────────────────────────────── */
-function FileFallback({ asset }) {
-    return (
-        <div className="flex flex-col items-center gap-5 text-white/60 p-8 text-center">
-            <div className="w-24 h-24 rounded-2xl bg-white/8 flex items-center justify-center">
-                <File size={40} className="text-white/30" />
-            </div>
-            <div>
-                <p className="text-[16px] font-semibold text-white/80 mb-1">{asset.file_original_name}</p>
-                <p className="text-[13px] text-white/40">{asset.mime_type || asset.extension || "Unknown file type"}</p>
-                {asset.file_size && <p className="text-[12px] text-white/30 mt-1">{formatFileSize(asset.file_size)}</p>}
-            </div>
-            <div className="flex gap-2 flex-wrap justify-center">
-                <button
-                    onClick={() => downloadAsset(asset)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-[#4A7C59] text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-[#3a6448] transition-all"
-                >
-                    <Download size={14} /> Download file
-                </button>
-                <button
-                    onClick={() => window.open(asset.file_url, "_blank")}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-white/10 text-white text-[13px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/15 transition-all"
-                >
-                    <ExternalLink size={14} /> Open in browser
-                </button>
-            </div>
-        </div>
-    );
-}
-
-/* ─── Copy URL Button ─────────────────────────────────────── */
-function CopyUrlButton({ url }) {
-    const [copied, setCopied] = useState(false);
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(url);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch { }
-    };
-    return (
-        <TBtn onClick={copy} title={copied ? "Copied!" : "Copy URL"} active={copied}>
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-        </TBtn>
-    );
-}
-
-/* ─── Download Progress Button ────────────────────────────── */
-function DownloadButton({ asset }) {
-    const [state, setState] = useState("idle"); // idle | downloading | done | error
-
-    const handle = async () => {
-        if (state === "downloading") return;
-        setState("downloading");
-        try {
-            await downloadAsset(asset);
-            setState("done");
-            setTimeout(() => setState("idle"), 2500);
-        } catch {
-            setState("error");
-            setTimeout(() => setState("idle"), 2500);
-        }
-    };
-
-    return (
-        <TBtn
-            onClick={handle}
-            title={state === "downloading" ? "Downloading…" : state === "done" ? "Downloaded!" : state === "error" ? "Failed – retry" : "Download"}
-            active={state === "done"}
-        >
-            {state === "downloading" ? (
-                <RefreshCw size={13} className="animate-spin" />
-            ) : state === "done" ? (
-                <Check size={13} />
-            ) : (
-                <Download size={13} />
-            )}
-        </TBtn>
-    );
-}
-
-/* ─── Main Component ──────────────────────────────────────── */
-export default function ImagePreview({ isOpen, onClose, asset, assets = [], onNavigate }) {
-    const [zoom, setZoom] = useState(1);
-    const [rotation, setRotation] = useState(0);
-    const [flipH, setFlipH] = useState(false);
-    const [showDetails, setShowDetails] = useState(false);
-    const [fullscreen, setFullscreen] = useState(false);
-    const [dragging, setDragging] = useState(false);
-    const [offset, setOffset] = useState({ x: 0, y: 0 });
-    const [dragStart, setDragStart] = useState(null);
-    const [imgBg, setImgBg] = useState("dark"); // "dark" | "light" | "checker"
-    const [imgLoaded, setImgLoaded] = useState(false);
-    const [showThumbs, setShowThumbs] = useState(false);
-    const imgRef = useRef(null);
-    const containerRef = useRef(null);
-
-    const currentIndex = assets.findIndex(a => a.id === asset?.id);
-    const hasPrev = currentIndex > 0;
-    const hasNext = currentIndex < assets.length - 1;
-
-    /* reset on asset change */
-    useEffect(() => {
-        if (isOpen) {
-            setZoom(1);
-            setRotation(0);
-            setFlipH(false);
-            setOffset({ x: 0, y: 0 });
-            setImgLoaded(false);
-        }
-    }, [asset?.id, isOpen]);
-
-    /* keyboard nav */
-    useEffect(() => {
-        const handleKey = (e) => {
-            if (!isOpen) return;
-            if (e.key === "Escape") { if (fullscreen) setFullscreen(false); else onClose(); }
-            if (e.key === "ArrowLeft" && hasPrev) onNavigate?.(assets[currentIndex - 1]);
-            if (e.key === "ArrowRight" && hasNext) onNavigate?.(assets[currentIndex + 1]);
-            if ((e.key === "+" || e.key === "=") && isImage(asset)) setZoom(z => Math.min(z + 0.25, 5));
-            if (e.key === "-" && isImage(asset)) setZoom(z => Math.max(z - 0.25, 0.1));
-            if (e.key === "0" && isImage(asset)) { setZoom(1); setOffset({ x: 0, y: 0 }); }
-            if (e.key === "r" && isImage(asset)) setRotation(r => r + 90);
-            if (e.key === "f") setFullscreen(f => !f);
-        };
-        document.addEventListener("keydown", handleKey);
-        return () => document.removeEventListener("keydown", handleKey);
-    }, [isOpen, hasPrev, hasNext, currentIndex, assets, asset, fullscreen]);
-
-    /* drag handlers */
-    const handleMouseDown = (e) => {
-        if (zoom <= 1 || !isImage(asset)) return;
-        e.preventDefault();
-        setDragging(true);
-        setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
-    };
-    const handleMouseMove = (e) => {
-        if (!dragging || !dragStart) return;
-        setOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-    };
-    const handleMouseUp = () => { setDragging(false); setDragStart(null); };
-
-    /* scroll-to-zoom */
-    const handleWheel = (e) => {
-        if (!isImage(asset)) return;
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.12 : 0.12;
-        setZoom(z => Math.max(0.1, Math.min(5, z + delta)));
-    };
-
-    /* double-click to toggle fit/100% */
-    const handleDblClick = () => {
-        if (!isImage(asset)) return;
-        if (zoom !== 1) { setZoom(1); setOffset({ x: 0, y: 0 }); }
-        else setZoom(2);
-    };
-
-    /* print */
-    const handlePrint = useCallback(() => {
-        if (!asset?.file_url) return;
-        const w = window.open("", "_blank");
-        if (!w) return;
-        if (isImage(asset)) {
-            w.document.write(`<html><head><title>${asset.file_original_name || "Print"}</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}img{max-width:100%;height:auto}</style></head><body><img src="${asset.file_url}" onload="window.print();window.close()"/></body></html>`);
-        } else {
-            w.location = asset.file_url;
-        }
-        w.document.close();
-    }, [asset]);
-
-    const bgStyle = {
-        dark: "bg-[#0a0c10]",
-        light: "bg-[#e8e8e8]",
-        checker: "",
-    };
-    const checkerStyle = imgBg === "checker" ? {
-        backgroundImage: "linear-gradient(45deg,#555 25%,transparent 25%),linear-gradient(-45deg,#555 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#555 75%),linear-gradient(-45deg,transparent 75%,#555 75%)",
-        backgroundSize: "20px 20px",
-        backgroundPosition: "0 0,0 10px,10px -10px,-10px 0",
-        backgroundColor: "#333",
-    } : {};
-
-    if (!isOpen || !asset) return null;
-
-    const assetIsImage = isImage(asset);
-    const assetIsPdf = isPdf(asset);
-
-    return (
-        <div
-            className={`fixed inset-0 z-[300] flex ${fullscreen ? "bg-black" : "bg-[#05070d]/92 backdrop-blur-xl"}`}
-            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        >
-            <style>{`
-                @keyframes previewIn { from { opacity:0; transform:scale(0.97) } to { opacity:1; transform:scale(1) } }
-                .preview-animate { animation: previewIn 0.16s cubic-bezier(.22,1,.36,1); }
-                @keyframes thumbIn { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
-                .thumb-animate { animation: thumbIn 0.2s cubic-bezier(.22,1,.36,1); }
-                .img-no-drag { -webkit-user-drag:none; user-drag:none; pointer-events:none; user-select:none; }
-                ::-webkit-scrollbar { width:5px; height:5px; }
-                ::-webkit-scrollbar-track { background:transparent; }
-                ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:3px; }
-            `}</style>
-
-            <div className="relative flex flex-col flex-1 overflow-hidden preview-animate">
-
-                {/* ── Top Bar ── */}
-                <div className={`flex items-center justify-between px-3 py-2.5 flex-shrink-0 z-20 ${fullscreen ? "bg-black/60 backdrop-blur-sm" : "bg-[#0d1117]/70 backdrop-blur-md border-b border-white/[0.07]"}`}>
-                    {/* left: close + name */}
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <TBtn onClick={onClose} title="Close (Esc)" danger>
-                            <X size={14} />
-                        </TBtn>
-                        <div className="min-w-0">
-                            <p className="text-[12.5px] font-semibold text-white truncate leading-tight max-w-[240px]">
-                                {asset.file_original_name}
-                            </p>
-                            {assets.length > 1 && (
-                                <p className="text-[10px] text-white/35 leading-tight">{currentIndex + 1} / {assets.length}</p>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* center: image controls */}
-                    {assetIsImage && (
-                        <div className="flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
-                            <TBtn onClick={() => setZoom(z => Math.max(0.1, z - 0.25))} title="Zoom out (-)"><ZoomOut size={13} /></TBtn>
-                            <button
-                                onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}
-                                className="px-2 h-8 text-[11px] font-bold text-white/70 bg-white/8 rounded-lg hover:bg-white/15 hover:text-white transition-all border-none cursor-pointer min-w-[46px]"
-                                title="Reset zoom (0)"
-                            >
-                                {Math.round(zoom * 100)}%
-                            </button>
-                            <TBtn onClick={() => setZoom(z => Math.min(5, z + 0.25))} title="Zoom in (+)"><ZoomIn size={13} /></TBtn>
-                            <div className="w-px h-4 bg-white/15 mx-0.5" />
-                            <TBtn onClick={() => setRotation(r => r + 90)} title="Rotate 90° (R)"><RotateCw size={13} /></TBtn>
-                            <TBtn onClick={() => setFlipH(f => !f)} title="Flip horizontal" active={flipH}><FlipHorizontal size={13} /></TBtn>
-                            <div className="w-px h-4 bg-white/15 mx-0.5" />
-                            {/* bg switcher */}
-                            <TBtn onClick={() => setImgBg(b => b === "dark" ? "light" : b === "light" ? "checker" : "dark")} title={`Background: ${imgBg}`}>
-                                {imgBg === "dark" ? <Moon size={13} /> : imgBg === "light" ? <Sun size={13} /> : <Grid size={13} />}
-                            </TBtn>
-                        </div>
-                    )}
-
-                    {/* right: actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                        {assets.length > 1 && (
-                            <TBtn onClick={() => setShowThumbs(t => !t)} title="Filmstrip" active={showThumbs}>
-                                <Grid size={13} />
-                            </TBtn>
-                        )}
-                        <TBtn onClick={() => setShowDetails(s => !s)} title="File details (I)" active={showDetails}>
-                            <Info size={13} />
-                        </TBtn>
-                        {asset.file_url && <CopyUrlButton url={asset.file_url} />}
-                        <DownloadButton asset={asset} />
-                        {(assetIsPdf || !assetIsImage) && (
-                            <TBtn onClick={() => window.open(asset.file_url, "_blank")} title="Open in new tab">
-                                <ExternalLink size={13} />
-                            </TBtn>
-                        )}
-                        <TBtn onClick={handlePrint} title="Print">
-                            <Printer size={13} />
-                        </TBtn>
-                        <div className="w-px h-4 bg-white/15 mx-0.5" />
-                        <TBtn onClick={() => setFullscreen(f => !f)} title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}>
-                            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                        </TBtn>
-                    </div>
-                </div>
-
-                <div className="flex flex-1 overflow-hidden">
-                    {/* ── Main Stage ── */}
-                    <div
-                        ref={containerRef}
-                        className={`flex-1 flex flex-col items-center justify-center overflow-hidden relative ${assetIsImage ? bgStyle[imgBg] : "bg-[#0a0c10]"}`}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        onWheel={handleWheel}
-                        onDoubleClick={handleDblClick}
-                        style={{
-                            cursor: assetIsImage && zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
-                            ...(assetIsImage ? checkerStyle : {}),
-                        }}
-                    >
-                        {/* Prev button */}
-                        {hasPrev && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onNavigate?.(assets[currentIndex - 1]); }}
-                                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-[#4A7C59]/70 hover:scale-105 transition-all border-none cursor-pointer shadow-lg"
-                            >
-                                <ChevronLeft size={18} />
-                            </button>
-                        )}
-
-                        {/* Image */}
-                        {assetIsImage ? (
-                            <div
-                                ref={imgRef}
-                                className="select-none"
-                                style={{
-                                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom}) rotate(${rotation}deg) scaleX(${flipH ? -1 : 1})`,
-                                    transition: dragging ? "none" : "transform 0.12s ease",
-                                    transformOrigin: "center center",
-                                    willChange: "transform",
-                                }}
-                            >
-                                {!imgLoaded && (
-                                    <div className="w-40 h-40 flex items-center justify-center">
-                                        <div className="w-6 h-6 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
-                                    </div>
-                                )}
-                                <img
-                                    src={asset.file_url}
-                                    alt={asset.file_original_name}
-                                    className={`img-no-drag max-w-[82vw] max-h-[76vh] object-contain rounded-md shadow-2xl ${imgLoaded ? "opacity-100" : "opacity-0"}`}
-                                    style={{ transition: "opacity 0.2s ease" }}
-                                    onLoad={() => setImgLoaded(true)}
-                                    onContextMenu={(e) => e.preventDefault()}
-                                    draggable={false}
-                                />
-                            </div>
-                        ) : assetIsPdf ? (
-                            <div className="flex flex-col flex-1 w-full items-center px-3 pt-3 pb-2 overflow-auto">
-                                <PdfViewer asset={asset} fullscreen={fullscreen} />
-                            </div>
-                        ) : (
-                            <FileFallback asset={asset} />
-                        )}
-
-                        {/* Next button */}
-                        {hasNext && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onNavigate?.(assets[currentIndex + 1]); }}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-[#4A7C59]/70 hover:scale-105 transition-all border-none cursor-pointer shadow-lg"
-                            >
-                                <ChevronRight size={18} />
-                            </button>
-                        )}
-
-                        {/* Zoom hint */}
-                        {assetIsImage && zoom === 1 && imgLoaded && (
-                            <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-white/20 select-none pointer-events-none">
-                                scroll to zoom · drag to pan · double-click to 2×
-                            </p>
-                        )}
-                    </div>
-
-                    {/* ── Details Panel ── */}
-                    {showDetails && (
-                        <div className="w-[272px] flex-shrink-0 bg-[#0d1117]/95 backdrop-blur-xl border-l border-white/[0.07] overflow-y-auto">
-                            <div className="p-4">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/30 mb-4">File Details</p>
-
-                                {assetIsImage && (
-                                    <div className="mb-4 rounded-xl overflow-hidden border border-white/[0.08] bg-black/30">
-                                        <img src={asset.file_url} alt="" className="w-full object-cover max-h-36 img-no-drag" onContextMenu={e => e.preventDefault()} draggable={false} />
-                                    </div>
-                                )}
-                                {assetIsPdf && (
-                                    <div className="mb-4 rounded-xl overflow-hidden border border-white/[0.08] bg-white/4 flex items-center justify-center h-20">
-                                        <FileText size={28} className="text-white/20" />
-                                    </div>
-                                )}
-
-                                <div className="flex flex-col gap-2">
-                                    {[
-                                        { icon: <FileType size={12} />, label: "File name", val: asset.file_original_name },
-                                        { icon: <HardDrive size={12} />, label: "File size", val: formatFileSize(asset.file_size) },
-                                        { icon: <FileType size={12} />, label: "Type", val: asset.mime_type || asset.extension || "—" },
-                                        { icon: <User size={12} />, label: "Uploaded by", val: asset.fname ? `${asset.fname} ${asset.lname || ""}`.trim() : "—" },
-                                        { icon: <Calendar size={12} />, label: "Uploaded on", val: fmtDateTime(asset.created_at) },
-                                    ].map(({ icon, label, val }) => (
-                                        <div key={label} className="p-2.5 bg-white/[0.04] rounded-lg border border-white/[0.06]">
-                                            <div className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.07em] text-white/25 mb-1">
-                                                {icon}{label}
-                                            </div>
-                                            <p className="text-[11.5px] text-white/75 break-all leading-snug">{val}</p>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* keyboard shortcuts */}
-                                <div className="mt-5">
-                                    <p className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-white/20 mb-2">Keyboard Shortcuts</p>
-                                    <div className="flex flex-col gap-1">
-                                        {[
-                                            ["←  →", "Navigate"],
-                                            ["+  −", "Zoom"],
-                                            ["0", "Reset zoom"],
-                                            ["R", "Rotate"],
-                                            ["F", "Fullscreen"],
-                                            ["Esc", "Close"],
-                                        ].map(([key, desc]) => (
-                                            <div key={key} className="flex items-center justify-between">
-                                                <code className="text-[10px] text-white/30 bg-white/8 px-1.5 py-0.5 rounded font-mono">{key}</code>
-                                                <span className="text-[10px] text-white/30">{desc}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-col gap-2 mt-4">
-                                    <DownloadButton asset={asset} />
-                                    <button
-                                        onClick={() => window.open(asset.file_url, "_blank")}
-                                        className="w-full flex items-center justify-center gap-2 py-2 bg-white/8 text-white/70 text-[11.5px] font-semibold rounded-xl border-none cursor-pointer hover:bg-white/12 hover:text-white transition-all"
-                                    >
-                                        <ExternalLink size={12} /> Open in browser
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* ── Filmstrip Thumbnails ── */}
-                {showThumbs && assets.length > 1 && (
-                    <div className="flex-shrink-0 bg-black/60 backdrop-blur-md border-t border-white/[0.06] px-3 py-2 overflow-x-auto thumb-animate">
-                        <div className="flex gap-2 items-center" style={{ width: "max-content" }}>
-                            {assets.map((a, i) => (
-                                <button
-                                    key={a.id}
-                                    onClick={() => onNavigate?.(a)}
-                                    className={`relative w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all cursor-pointer bg-white/8 ${a.id === asset.id ? "border-[#4A7C59] shadow-[0_0_0_1px_#4A7C59]" : "border-transparent hover:border-white/30"}`}
-                                    title={a.file_original_name}
-                                >
-                                    {isImage(a) ? (
-                                        <img src={a.file_url} alt="" className="w-full h-full object-cover img-no-drag" draggable={false} onContextMenu={e => e.preventDefault()} />
-                                    ) : isPdf(a) ? (
-                                        <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-white/30" /></div>
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center"><File size={20} className="text-white/30" /></div>
-                                    )}
-                                    {a.id === asset.id && (
-                                        <div className="absolute inset-0 bg-[#4A7C59]/15 pointer-events-none" />
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-
-assetStore.js:
-import { create } from "zustand";
-import axiosInstance from "../../api/axiosInstance";
-
-export const useAssetStore = create((set, get) => ({
-  assets: [],
-  loading: false,
-  error: null,
-  pagination: {
-    currentPage: 1,
-    total: 0,
-    totalPages: 0,
-    hasNext: false,
-    hasPrev: false,
-    perPage: 20,
-    lastPage: 1,
-  },
-
-  fetchAssets: async (clinicId, page = 1, params = {}) => {
-    set({ loading: true, error: null });
-    try {
-      const query = new URLSearchParams({ page, limit: 20, ...params });
-      const response = await axiosInstance.get(
-        `/assets/${clinicId}/assets?${query}`,
-      );
-      const data = response.data?.data;
-      set({
-        assets: data?.assets || [],
-        pagination: {
-          currentPage: data?.pagination?.page || page,
-          total: data?.pagination?.total || 0,
-          totalPages: data?.pagination?.totalPages || 1,
-          hasNext: data?.pagination?.hasNext || false,
-          hasPrev: data?.pagination?.hasPrev || false,
-          perPage: data?.pagination?.limit || 20,
-          lastPage: data?.pagination?.totalPages || 1,
-        },
-        loading: false,
-      });
-      return data?.assets || [];
-    } catch (error) {
-      set({
-        error:
-          error?.response?.data?.message ||
-          error?.message ||
-          "Failed to fetch assets",
-        loading: false,
-      });
-      throw error;
-    }
-  },
-
-  uploadAsset: async (clinicId, payload) => {
-    set({ loading: true, error: null });
-    try {
-      const response = await axiosInstance.post(
-        `/assets/${clinicId}/assets/upload`,
-        payload,
-      );
-      const asset = response.data?.data?.asset;
-      set((state) => ({
-        assets: [asset, ...state.assets],
-        loading: false,
-      }));
-      return asset;
-    } catch (error) {
-      set({
-        error:
-          error?.response?.data?.message || error?.message || "Upload failed",
-        loading: false,
-      });
-      throw error;
-    }
-  },
-
-  deleteAsset: async (clinicId, assetId) => {
-    try {
-      await axiosInstance.delete(`/assets/${clinicId}/assets/${assetId}`);
-      set((state) => ({
-        assets: state.assets.filter((a) => a.id !== assetId),
-      }));
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  transferAsset: async (clinicId, assetId, receiverId, message) => {
-    try {
-      const response = await axiosInstance.post(
-        `/assets/${clinicId}/assets/${assetId}/transfer`,
-        {
-          receiver_id: receiverId,
-          message,
-        },
-      );
-      return response.data?.data?.transfer;
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  getMyTransfers: async () => {
-    try {
-      const response = await axiosInstance.get(`/assets/my-transfers`);
-      return response.data?.data?.transfers || [];
-    } catch (error) {
-      throw error;
-    }
-  },
-}));
-
-
-asset.model.js:
-const { db_connection } = require("../config/config.inc");
-
-const Asset = {
-  create: async ({ clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at }) => {
-    try {
-      const [result] = await db_connection.execute(
-        `INSERT INTO clinic_assets (clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at]
-      );
-      return result.insertId;
-    } catch (error) {
-      console.error("Error in Asset.create:", error);
-      return null;
-    }
-  },
-
-  findById: async (id) => {
-    try {
-      const [rows] = await db_connection.execute(
-        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
-         FROM clinic_assets ca
-         LEFT JOIN users u ON u.id = ca.user_id
-         WHERE ca.id = ? AND ca.deleted_at IS NULL
-         LIMIT 1`,
-        [id]
-      );
-      return rows[0] || null;
-    } catch (error) {
-      console.error("Error in Asset.findById:", error);
-      return null;
-    }
-  },
-
-  findByClinic: async ({ clinicId, page = 1, limit = 20, search = null, mimeType = null }) => {
-    try {
-      const offset = (page - 1) * limit;
-      const params = [clinicId];
-      const conditions = ["ca.clinic_id = ?", "ca.deleted_at IS NULL"];
-
-      if (search) {
-        conditions.push("ca.file_original_name LIKE ?");
-        params.push(`%${search}%`);
-      }
-      if (mimeType) {
-        conditions.push("ca.mime_type LIKE ?");
-        params.push(`${mimeType}%`);
-      }
-
-      const where = conditions.join(" AND ");
-      const countParams = [...params];
-
-      const [[{ total }]] = await db_connection.execute(
-        `SELECT COUNT(*) AS total FROM clinic_assets ca WHERE ${where}`,
-        countParams
-      );
-
-      if (total === 0) return { assets: [], total: 0 };
-
-      const dataParams = [...params, limit, offset];
-      const [rows] = await db_connection.execute(
-        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
-         FROM clinic_assets ca
-         LEFT JOIN users u ON u.id = ca.user_id
-         WHERE ${where}
-         ORDER BY ca.created_at DESC
-         LIMIT ? OFFSET ?`,
-        dataParams
-      );
-
-      return { assets: rows, total };
-    } catch (error) {
-      console.error("Error in Asset.findByClinic:", error);
-      return { assets: [], total: 0 };
-    }
-  },
-
-  delete: async (id, clinicId) => {
-    try {
-      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
-      const [result] = await db_connection.execute(
-        `UPDATE clinic_assets SET deleted_at = ? WHERE id = ? AND clinic_id = ?`,
-        [nowUtc, id, clinicId]
-      );
-      return result.affectedRows > 0;
-    } catch (error) {
-      console.error("Error in Asset.delete:", error);
-      return false;
-    }
-  },
-
-  findTransfersByAsset: async (assetId) => {
-    try {
-      const [rows] = await db_connection.execute(
-        `SELECT ft.*, 
-          s.fname AS sender_fname, s.lname AS sender_lname,
-          r.fname AS receiver_fname, r.lname AS receiver_lname, r.email AS receiver_email
-         FROM asset_transfers ft
-         LEFT JOIN users s ON s.id = ft.sender_id
-         LEFT JOIN users r ON r.id = ft.receiver_id
-         WHERE ft.asset_id = ?
-         ORDER BY ft.created_at DESC`,
-        [assetId]
-      );
-      return rows;
-    } catch (error) {
-      console.error("Error in Asset.findTransfersByAsset:", error);
-      return [];
-    }
-  },
-
-  createTransfer: async ({ asset_id, sender_id, receiver_id, message, created_at }) => {
-    try {
-      const [result] = await db_connection.execute(
-        `INSERT INTO asset_transfers (asset_id, sender_id, receiver_id, message, status, created_at)
-         VALUES (?, ?, ?, ?, 'sent', ?)`,
-        [asset_id, sender_id, receiver_id, message || null, created_at]
-      );
-      return result.insertId;
-    } catch (error) {
-      console.error("Error in Asset.createTransfer:", error);
-      return null;
-    }
-  },
-
-  findTransferById: async (transferId) => {
-    try {
-      const [rows] = await db_connection.execute(
-        `SELECT ft.*,
-          ca.file_url, ca.file_original_name, ca.mime_type,
-          s.fname AS sender_fname, s.lname AS sender_lname,
-          r.fname AS receiver_fname, r.lname AS receiver_lname
-         FROM asset_transfers ft
-         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
-         LEFT JOIN users s ON s.id = ft.sender_id
-         LEFT JOIN users r ON r.id = ft.receiver_id
-         WHERE ft.id = ?
-         LIMIT 1`,
-        [transferId]
-      );
-      return rows[0] || null;
-    } catch (error) {
-      console.error("Error in Asset.findTransferById:", error);
-      return null;
-    }
-  },
-
-  updateTransferStatus: async (transferId, status) => {
-    try {
-      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
-      const [result] = await db_connection.execute(
-        `UPDATE asset_transfers SET status = ?, received_at = ? WHERE id = ?`,
-        [status, nowUtc, transferId]
-      );
-      return result.affectedRows > 0;
-    } catch (error) {
-      console.error("Error in Asset.updateTransferStatus:", error);
-      return false;
-    }
-  },
-
-  findTransfersByReceiver: async (userId) => {
-    try {
-      const [rows] = await db_connection.execute(
-        `SELECT ft.*,
-          ca.file_url, ca.file_original_name, ca.mime_type, ca.file_size,
-          s.fname AS sender_fname, s.lname AS sender_lname
-         FROM asset_transfers ft
-         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
-         LEFT JOIN users s ON s.id = ft.sender_id
-         WHERE ft.receiver_id = ?
-         ORDER BY ft.created_at DESC`,
-        [userId]
-      );
-      return rows;
-    } catch (error) {
-      console.error("Error in Asset.findTransfersByReceiver:", error);
-      return [];
-    }
-  },
-};
-
-module.exports = Asset;
-
-
-asset.route.js:
-const express = require("express");
-const router = express.Router({ mergeParams: true });
-const validateTokenHandler = require("../middleware/validateTokenHandler");
-const {
-  uploadClinicAsset,
-  getClinicAssets,
-  deleteClinicAsset,
-  transferAsset,
-  getAssetTransfers,
-  updateTransferStatus,
-  getMyTransfers,
-} = require("../controllers/asset.controller");
-const { checkRolePermission } = require("../middleware/rolePermission");
-
-router.get(
-  "/:clinicId/assets",
-  validateTokenHandler,
-  getClinicAssets
-);
-
-router.post(
-  "/:clinicId/assets/upload",
-  validateTokenHandler,
-  uploadClinicAsset
-);
-
-router.delete(
-  "/:clinicId/assets/:assetId",
-  validateTokenHandler,
-  deleteClinicAsset
-);
-
-router.post(
-  "/:clinicId/assets/:assetId/transfer",
-  validateTokenHandler,
-  transferAsset
-);
-
-router.get(
-  "/:clinicId/assets/:assetId/transfers",
-  validateTokenHandler,
-  getAssetTransfers
-);
-
-router.patch(
-  "/:clinicId/assets/transfers/:transferId/status",
-  validateTokenHandler,
-  updateTransferStatus
-);
-
-router.get(
-  "/my-transfers",
-  validateTokenHandler,
-  getMyTransfers
-);
-
-module.exports = router;
-
-asset.controller.js:
-const asyncHandler = require("express-async-handler");
-const { responseHandler } = require("../middleware/responseHandler.js");
-const Asset = require("../models/asset.model.js");
-const axios = require("axios");
-const { v4: uuidv4 } = require("uuid");
-const { file_config } = require("../config/config.inc.js");
-
-const uploadClinicAsset = asyncHandler(async function (req, res) {
-  const userId = req.user?.id;
-  const clinicId = parseInt(req.params.clinicId, 10);
-  const { file, filename, filetype, file_size, file_original_name } = req.body;
-
-  if (!userId) {
-    res.status(401);
-    throw new Error("User not authenticated");
-  }
-
-  if (!file) {
-    res.status(400);
-    throw new Error("No file uploaded");
-  }
-
-  try {
-    const response = await axios.post(
-      "https://projectapi.tixora.com.ng/fileflow/files/api/upload",
-      {
-        image: file,
-        folderName: `medicore/clinic_${clinicId}` || "general",
-        fileName: file_original_name,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${file_config.apiKey}`,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    if (!response.data || !response.data.data) {
-      throw new Error("Invalid response from file upload service");
-    }
-
-    const uploadData = response.data.data;
-    const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
-
-    const assetId = await Asset.create({
-      clinic_id: clinicId,
-      user_id: userId,
-      file_uuid: uploadData.uuid || uuidv4(),
-      file_original_name: uploadData.file_original_name || file_original_name,
-      file_url: uploadData.file_url,
-      file_name: uploadData.file_name || filename,
-      file_size: uploadData.file_size || file_size,
-      mime_type: uploadData.type || filetype,
-      extension: uploadData.extension,
-      created_at: nowUtc,
-    });
-
-    if (!assetId) {
-      res.status(500);
-      throw new Error("Failed to save asset");
-    }
-
-    const asset = await Asset.findById(assetId);
-
-    res.status(201);
-    responseHandler(res, { asset }, "File uploaded successfully");
-  } catch (error) {
-    res.status(500);
-    throw new Error(`File upload failed: ${error.message}`);
-  }
-});
-
-const getClinicAssets = asyncHandler(async function (req, res) {
-  const clinicId = parseInt(req.params.clinicId, 10);
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const search = req.query.search?.trim() || null;
-  const mimeType = req.query.mime_type || null;
-
-  const { assets, total } = await Asset.findByClinic({
-    clinicId,
-    page,
-    limit,
-    search,
-    mimeType,
-  });
-  const totalPages = Math.ceil(total / limit);
-
-  res.status(200);
-  responseHandler(res, {
-    assets,
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages,
-      hasNext: page < totalPages,
-      hasPrev: page > 1,
-    },
-  });
-});
-
-const deleteClinicAsset = asyncHandler(async function (req, res) {
-  const clinicId = parseInt(req.params.clinicId, 10);
-  const assetId = parseInt(req.params.assetId, 10);
-
-  const deleted = await Asset.delete(assetId, clinicId);
-
-  if (!deleted) {
-    res.status(404);
-    throw new Error("Asset not found or already deleted");
-  }
-
-  res.status(200);
-  responseHandler(res, { message: "Asset deleted successfully" });
-});
-
-const transferAsset = asyncHandler(async function (req, res) {
-  const clinicId = parseInt(req.params.clinicId, 10);
-  const assetId = parseInt(req.params.assetId, 10);
-  const senderId = req.user?.id;
-  const { receiver_id, message } = req.body;
-
-  if (!receiver_id) {
-    res.status(400);
-    throw new Error("Receiver ID is required");
-  }
-
-  const asset = await Asset.findById(assetId);
-  if (!asset || asset.clinic_id !== clinicId) {
-    res.status(404);
-    throw new Error("Asset not found");
-  }
-
-  const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
-
-  const transferId = await Asset.createTransfer({
-    asset_id: assetId,
-    sender_id: senderId,
-    receiver_id,
-    message,
-    created_at: nowUtc,
-  });
-
-  if (!transferId) {
-    res.status(500);
-    throw new Error("Failed to create transfer");
-  }
-
-  const transfer = await Asset.findTransferById(transferId);
-
-  res.status(201);
-  responseHandler(res, { transfer }, "File transferred successfully");
-});
-
-const getAssetTransfers = asyncHandler(async function (req, res) {
-  const assetId = parseInt(req.params.assetId, 10);
-  const transfers = await Asset.findTransfersByAsset(assetId);
-  res.status(200);
-  responseHandler(res, { transfers });
-});
-
-const updateTransferStatus = asyncHandler(async function (req, res) {
-  const transferId = parseInt(req.params.transferId, 10);
-  const { status } = req.body;
-
-  if (!["received", "declined"].includes(status)) {
-    res.status(400);
-    throw new Error("Status must be 'received' or 'declined'");
-  }
-
-  const updated = await Asset.updateTransferStatus(transferId, status);
-  if (!updated) {
-    res.status(404);
-    throw new Error("Transfer not found");
-  }
-
-  res.status(200);
-  responseHandler(res, { message: "Transfer status updated" });
-});
-
-const getMyTransfers = asyncHandler(async function (req, res) {
-  const userId = req.user?.id;
-  const transfers = await Asset.findTransfersByReceiver(userId);
-  res.status(200);
-  responseHandler(res, { transfers });
-});
-
-module.exports = {
-  uploadClinicAsset,
-  getClinicAssets,
-  deleteClinicAsset,
-  transferAsset,
-  getAssetTransfers,
-  updateTransferStatus,
-  getMyTransfers,
-};
-
-
 MediaLibrary.jsx:
+
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
     Upload, Trash2, Search, Image as ImageIcon, File, Loader2, Send,
     X, Eye, MoreVertical, Download, RefreshCw, HardDrive, Calendar,
     User, CheckCircle2, AlertCircle, Filter, Grid3X3, List, Inbox,
+    ArrowDownToLine, Clock, UserCircle2,
 } from "lucide-react";
 import { useClinicStore, useAssetStore } from "../store/store";
 import { fileToBase64 } from "../utils/fileToBase64";
@@ -1235,6 +40,12 @@ function initials(fname, lname) {
 }
 
 const AV_COLORS = ["#4A7C59", "#E8927C", "#C9A84C", "#8A9BB0", "#6A3D85", "#2563EB", "#15803D", "#c97058"];
+
+const STATUS_STYLES = {
+    sent: "bg-[#EEF2F7] text-[#8A9BB0]",
+    received: "bg-[#E8F2EB] text-[#2F5C3A]",
+    declined: "bg-[#FAF0ED] text-[#c05c3c]",
+};
 
 function TransferModal({ asset, onClose, clinicId, onTransferred }) {
     const { transferAsset } = useAssetStore();
@@ -1395,10 +206,192 @@ function AssetRowMenu({ asset, onDelete, onTransfer, onPreview }) {
     );
 }
 
+// ─── Transfers Tab ────────────────────────────────────────────────────────────
+
+function TransfersTab({ clinicId }) {
+    const { transfers, transfersLoading, transfersError, getMyTransfers, updateTransferStatus, downloadAsset } = useAssetStore();
+    const [previewAsset, setPreviewAsset] = useState(null);
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [updatingId, setUpdatingId] = useState(null);
+
+    useEffect(() => {
+        getMyTransfers();
+    }, []);
+
+    const handleStatusUpdate = async (transferId, status) => {
+        setUpdatingId(transferId);
+        try {
+            await updateTransferStatus(clinicId, transferId, status);
+        } catch {
+            // silently fail — UI still shows optimistic update
+        } finally {
+            setUpdatingId(null);
+        }
+    };
+
+    const filtered = useMemo(() => {
+        if (statusFilter === "all") return transfers;
+        return transfers.filter(t => t.status === statusFilter);
+    }, [transfers, statusFilter]);
+
+    const STATUS_FILTERS = [
+        { val: "all", label: "All" },
+        { val: "sent", label: "Pending" },
+        { val: "received", label: "Received" },
+        { val: "declined", label: "Declined" },
+    ];
+
+    if (transfersLoading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
+                    <Loader2 size={24} className="animate-spin" />
+                    <p className="text-[13px]">Loading transfers…</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (transfersError) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="text-center text-[#c05c3c]">
+                    <AlertCircle size={32} className="mx-auto opacity-60 mb-2" />
+                    <p className="text-[13px]">{transfersError}</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-5 flex flex-col gap-4">
+            {/* Status filter pills */}
+            <div className="flex items-center gap-2">
+                {STATUS_FILTERS.map(f => (
+                    <button key={f.val} onClick={() => setStatusFilter(f.val)}
+                        className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-['DM_Sans'] ${statusFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
+                        {f.label}
+                    </button>
+                ))}
+                <button onClick={() => getMyTransfers()} className="ml-auto w-7 h-7 flex items-center justify-center rounded-lg border border-black/[0.09] text-[#8A9BB0] hover:border-[#4A7C59] hover:text-[#4A7C59] transition-all cursor-pointer bg-transparent">
+                    <RefreshCw size={13} />
+                </button>
+            </div>
+
+            {filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-56 text-[#8A9BB0]">
+                    <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-black/[0.07]">
+                        <Inbox size={24} className="opacity-40" />
+                    </div>
+                    <p className="text-[15px] font-semibold text-[#0D1117] mb-1">No transfers yet</p>
+                    <p className="text-[12px]">Files shared with you will appear here</p>
+                </div>
+            ) : (
+                <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
+                    {/* Table header */}
+                    <div className="grid px-4 py-2.5 border-b border-black/[0.05] bg-[#F7F4EF]/60"
+                        style={{ gridTemplateColumns: "40px 1fr 130px 100px 120px 130px" }}>
+                        {["", "File", "From", "Size", "Received", "Status"].map((h, i) => (
+                            <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0]">{h}</span>
+                        ))}
+                    </div>
+
+                    {filtered.map((transfer) => {
+                        const isImage = transfer.mime_type?.startsWith("image/");
+                        const isPending = transfer.status === "sent";
+                        return (
+                            <div key={transfer.id}
+                                className="grid items-center px-4 py-3 border-b border-black/[0.05] last:border-b-0 hover:bg-[#F7F4EF]/60 transition-colors"
+                                style={{ gridTemplateColumns: "40px 1fr 130px 100px 120px 130px" }}
+                            >
+                                {/* Thumbnail */}
+                                <div
+                                    className="w-8 h-8 rounded-lg bg-[#F7F4EF] flex items-center justify-center flex-shrink-0 overflow-hidden border border-black/[0.07] cursor-pointer"
+                                    onClick={() => isImage && setPreviewAsset({ file_url: transfer.file_url, file_original_name: transfer.file_original_name, mime_type: transfer.mime_type })}
+                                >
+                                    {isImage ? (
+                                        <img src={transfer.file_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                    ) : (
+                                        <File size={14} className="text-[#8A9BB0]" />
+                                    )}
+                                </div>
+
+                                {/* Name */}
+                                <div className="min-w-0 pl-2">
+                                    <p className="text-[13px] font-semibold text-[#0D1117] truncate">{transfer.file_original_name}</p>
+                                    {transfer.message && (
+                                        <p className="text-[11px] text-[#8A9BB0] truncate italic">"{transfer.message}"</p>
+                                    )}
+                                </div>
+
+                                {/* Sender */}
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <div className="w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                                        style={{ background: AV_COLORS[transfer.sender_id % AV_COLORS.length] }}>
+                                        {initials(transfer.sender_fname, transfer.sender_lname)}
+                                    </div>
+                                    <p className="text-[12px] text-[#8A9BB0] truncate">{transfer.sender_fname} {transfer.sender_lname}</p>
+                                </div>
+
+                                {/* Size */}
+                                <p className="text-[12px] text-[#8A9BB0]">{formatFileSize(transfer.file_size)}</p>
+
+                                {/* Date */}
+                                <p className="text-[12px] text-[#8A9BB0]">{fmtDate(transfer.created_at)}</p>
+
+                                {/* Status + Actions */}
+                                <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-md capitalize ${STATUS_STYLES[transfer.status] || "bg-[#EEF2F7] text-[#8A9BB0]"}`}>
+                                        {transfer.status === "sent" ? "Pending" : transfer.status}
+                                    </span>
+                                    {isPending && (
+                                        <div className="flex gap-1 ml-auto">
+                                            <button
+                                                onClick={() => handleStatusUpdate(transfer.id, "received")}
+                                                disabled={updatingId === transfer.id}
+                                                title="Mark as received"
+                                                className="w-6 h-6 rounded-md bg-[#E8F2EB] text-[#4A7C59] flex items-center justify-center hover:bg-[#4A7C59] hover:text-white transition-all border-none cursor-pointer disabled:opacity-50"
+                                            >
+                                                {updatingId === transfer.id ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />}
+                                            </button>
+                                            <button
+                                                onClick={() => handleStatusUpdate(transfer.id, "declined")}
+                                                disabled={updatingId === transfer.id}
+                                                title="Decline"
+                                                className="w-6 h-6 rounded-md bg-[#FAF0ED] text-[#c05c3c] flex items-center justify-center hover:bg-[#c05c3c] hover:text-white transition-all border-none cursor-pointer disabled:opacity-50"
+                                            >
+                                                <X size={10} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {previewAsset && (
+                <ImagePreview
+                    isOpen={!!previewAsset}
+                    onClose={() => setPreviewAsset(null)}
+                    asset={previewAsset}
+                    assets={[previewAsset]}
+                    onNavigate={setPreviewAsset}
+                    clinicId={clinicId}
+                />
+            )}
+        </div>
+    );
+}
+
+// ─── Main MediaLibrary Component ──────────────────────────────────────────────
+
 export default function MediaLibrary() {
     const { selectedClinic } = useClinicStore();
-    const { assets, loading, error, pagination, fetchAssets, uploadAsset, deleteAsset } = useAssetStore();
+    const { assets, loading, error, pagination, fetchAssets, uploadAsset, deleteAsset, downloadAsset } = useAssetStore();
 
+    const [activeTab, setActiveTab] = useState("my-files"); // "my-files" | "transferred"
     const [search, setSearch] = useState("");
     const [viewMode, setViewMode] = useState("grid");
     const [uploading, setUploading] = useState(false);
@@ -1445,22 +438,9 @@ export default function MediaLibrary() {
         fetchAssets(clinicId, page);
     };
 
-    const handleDownload = async (asset) => {
-        try {
-            const res = await fetch(asset.file_url);
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = asset.file_original_name || "download";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch {
-            window.open(asset.file_url, "_blank");
-        }
-    };
+    const handleDownload = useCallback(async (asset) => {
+        await downloadAsset(clinicId, asset.id, asset.file_original_name);
+    }, [clinicId]);
 
     const filtered = useMemo(() => {
         return assets.filter(a => {
@@ -1480,164 +460,196 @@ export default function MediaLibrary() {
 
     return (
         <div className="h-screen overflow-hidden font-['DM_Sans'] bg-[#F7F4EF] text-[#0D1117] flex flex-col">
+            {/* ── Header ── */}
             <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-black/[0.09] flex-shrink-0">
                 <div>
                     <h1 className="font-['DM_Serif_Display'] text-[22px] text-[#0D1117] leading-tight">Media Library</h1>
                     <p className="text-[12px] text-[#8A9BB0] mt-0.5">
-                        {pagination.total} file{pagination.total !== 1 ? "s" : ""} · {selectedClinic?.name || "Clinic"}
+                        {activeTab === "my-files"
+                            ? `${pagination.total} file${pagination.total !== 1 ? "s" : ""} · ${selectedClinic?.name || "Clinic"}`
+                            : `Files transferred to you · ${selectedClinic?.name || "Clinic"}`}
                     </p>
                 </div>
-                <label className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] hover:shadow-[0_4px_14px_rgba(47,92,58,0.25)] transition-all cursor-pointer font-['DM_Sans']">
-                    {uploading ? <><Loader2 size={13} className="animate-spin" />Uploading…</> : <><Upload size={13} />Upload file</>}
-                    <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} accept="image/*,application/pdf,.doc,.docx" />
-                </label>
+                {activeTab === "my-files" && (
+                    <label className="flex items-center gap-1.5 px-4 py-2 bg-[#4A7C59] text-white text-[12px] font-semibold rounded-xl hover:bg-[#2F5C3A] hover:shadow-[0_4px_14px_rgba(47,92,58,0.25)] transition-all cursor-pointer font-['DM_Sans']">
+                        {uploading ? <><Loader2 size={13} className="animate-spin" />Uploading…</> : <><Upload size={13} />Upload file</>}
+                        <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} accept="image/*,application/pdf,.doc,.docx" />
+                    </label>
+                )}
             </div>
 
+            {/* Upload success toast */}
             {uploadSuccess && (
                 <div className="mx-5 mt-3 flex items-center gap-2 px-3.5 py-2.5 bg-[#E8F2EB] border border-[#4A7C59]/20 rounded-xl text-[12px] font-medium text-[#2F5C3A]">
                     <CheckCircle2 size={14} />File uploaded successfully.
                 </div>
             )}
 
-            <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-black/[0.09] bg-white flex-shrink-0">
-                <div className="relative w-52">
-                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
-                    <input
-                        type="text"
-                        placeholder="Search files…"
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        className="w-full pl-7 pr-2.5 py-1.5 text-[12px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-lg outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all"
-                    />
-                </div>
-
-                <div className="flex gap-1">
-                    {MIME_FILTERS.map(f => (
-                        <button key={f.val} onClick={() => setMimeFilter(f.val)}
-                            className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-['DM_Sans'] ${mimeFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
-                            {f.label}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="ml-auto flex items-center gap-1.5">
-                    <button onClick={() => setViewMode("grid")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "grid" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
-                        <Grid3X3 size={13} />
-                    </button>
-                    <button onClick={() => setViewMode("list")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "list" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
-                        <List size={13} />
-                    </button>
-                    <button onClick={() => fetchAssets(clinicId, currentPage)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-black/[0.09] text-[#8A9BB0] hover:border-[#4A7C59] hover:text-[#4A7C59] transition-all cursor-pointer bg-transparent">
-                        <RefreshCw size={13} />
-                    </button>
-                </div>
+            {/* ── Tabs ── */}
+            <div className="flex items-center gap-0 px-5 pt-3 bg-white border-b border-black/[0.09] flex-shrink-0">
+                <button
+                    onClick={() => setActiveTab("my-files")}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-semibold border-b-2 transition-all cursor-pointer bg-transparent font-['DM_Sans'] mr-1 ${activeTab === "my-files" ? "border-[#4A7C59] text-[#0D1117]" : "border-transparent text-[#8A9BB0] hover:text-[#0D1117]"}`}
+                >
+                    <HardDrive size={13} />My Files
+                </button>
+                <button
+                    onClick={() => setActiveTab("transferred")}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-semibold border-b-2 transition-all cursor-pointer bg-transparent font-['DM_Sans'] ${activeTab === "transferred" ? "border-[#4A7C59] text-[#0D1117]" : "border-transparent text-[#8A9BB0] hover:text-[#0D1117]"}`}
+                >
+                    <Inbox size={13} />Transferred to Me
+                </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5">
-                {loading && assets.length === 0 ? (
-                    <div className="flex items-center justify-center h-64">
-                        <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
-                            <Loader2 size={24} className="animate-spin" />
-                            <p className="text-[13px]">Loading media…</p>
-                        </div>
+            {/* ── My Files tab toolbar ── */}
+            {activeTab === "my-files" && (
+                <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-black/[0.09] bg-white flex-shrink-0">
+                    <div className="relative w-52">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A9BB0] pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Search files…"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className="w-full pl-7 pr-2.5 py-1.5 text-[12px] font-['DM_Sans'] bg-[#F7F4EF] border border-black/[0.09] rounded-lg outline-none text-[#0D1117] placeholder-[#B8C0CC] focus:border-[#4A7C59] focus:bg-white transition-all"
+                        />
                     </div>
-                ) : error ? (
-                    <div className="flex items-center justify-center h-64">
-                        <div className="text-center text-[#c05c3c]">
-                            <AlertCircle size={32} className="mx-auto opacity-60 mb-2" />
-                            <p className="text-[13px]">{error}</p>
-                        </div>
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-[#8A9BB0]">
-                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-black/[0.07]">
-                            <ImageIcon size={24} className="opacity-40" />
-                        </div>
-                        <p className="text-[15px] font-semibold text-[#0D1117] mb-1">No files found</p>
-                        <p className="text-[12px]">{search ? "Try a different search" : "Upload your first file to get started"}</p>
-                    </div>
-                ) : viewMode === "grid" ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                        {filtered.map(asset => {
-                            const isImage = asset.mime_type?.startsWith("image/");
-                            return (
-                                <div key={asset.id} className="group relative bg-white rounded-2xl border border-black/[0.09] overflow-hidden hover:border-[#4A7C59]/40 hover:shadow-[0_4px_16px_rgba(74,124,89,0.1)] transition-all cursor-pointer"
-                                    onClick={() => setPreviewAsset(asset)}>
-                                    <div className="aspect-square bg-[#F7F4EF] flex items-center justify-center">
-                                        {isImage ? (
-                                            <img src={asset.file_url} alt={asset.file_original_name} className="w-full h-full object-cover" loading="lazy" />
-                                        ) : (
-                                            <File size={28} className="text-[#8A9BB0]" />
-                                        )}
-                                    </div>
-                                    <div className="p-2.5">
-                                        <p className="text-[11px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
-                                        <p className="text-[10px] text-[#8A9BB0] mt-0.5">{formatFileSize(asset.file_size)}</p>
-                                    </div>
-                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                                        <AssetRowMenu
-                                            asset={asset}
-                                            onDelete={() => handleDelete(asset)}
-                                            onTransfer={() => setTransferAssetData(asset)}
-                                            onPreview={() => setPreviewAsset(asset)}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
-                        <div className="grid px-4 py-2.5 border-b border-black/[0.05] bg-[#F7F4EF]/60"
-                            style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}>
-                            {["", "Name", "Type", "Size", "Uploaded", ""].map((h, i) => (
-                                <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0]">{h}</span>
-                            ))}
-                        </div>
-                        {filtered.map(asset => {
-                            const isImage = asset.mime_type?.startsWith("image/");
-                            return (
-                                <div key={asset.id}
-                                    className="grid items-center px-4 py-3 border-b border-black/[0.05] hover:bg-[#F7F4EF]/60 transition-colors cursor-pointer"
-                                    style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}
-                                    onClick={() => setPreviewAsset(asset)}
-                                >
-                                    <div className="w-8 h-8 rounded-lg bg-[#F7F4EF] flex items-center justify-center flex-shrink-0 overflow-hidden border border-black/[0.07]">
-                                        {isImage ? (
-                                            <img src={asset.file_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                                        ) : (
-                                            <File size={14} className="text-[#8A9BB0]" />
-                                        )}
-                                    </div>
-                                    <div className="min-w-0 pl-2">
-                                        <p className="text-[13px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
-                                        <p className="text-[11px] text-[#8A9BB0]">by {asset.fname || "—"} {asset.lname || ""}</p>
-                                    </div>
-                                    <p className="text-[11px] text-[#8A9BB0] truncate">{asset.extension || asset.mime_type?.split("/")[1] || "—"}</p>
-                                    <p className="text-[12px] text-[#8A9BB0]">{formatFileSize(asset.file_size)}</p>
-                                    <p className="text-[12px] text-[#8A9BB0]">{fmtDate(asset.created_at)}</p>
-                                    <div onClick={e => e.stopPropagation()}>
-                                        <AssetRowMenu
-                                            asset={asset}
-                                            onDelete={() => handleDelete(asset)}
-                                            onTransfer={() => setTransferAssetData(asset)}
-                                            onPreview={() => setPreviewAsset(asset)}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
 
-                {pagination.totalPages > 1 && (
-                    <div className="mt-6 flex items-center justify-center gap-2">
-                        {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(page => (
-                            <button key={page} onClick={() => handlePageChange(page)}
-                                className={`w-8 h-8 text-[12px] font-semibold rounded-lg border transition-all cursor-pointer font-['DM_Sans'] ${currentPage === page ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-white text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
-                                {page}
+                    <div className="flex gap-1">
+                        {MIME_FILTERS.map(f => (
+                            <button key={f.val} onClick={() => setMimeFilter(f.val)}
+                                className={`px-2.5 py-1 text-[11px] font-semibold border rounded-md cursor-pointer whitespace-nowrap transition-all font-['DM_Sans'] ${mimeFilter === f.val ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
+                                {f.label}
                             </button>
                         ))}
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-1.5">
+                        <button onClick={() => setViewMode("grid")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "grid" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
+                            <Grid3X3 size={13} />
+                        </button>
+                        <button onClick={() => setViewMode("list")} className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all cursor-pointer ${viewMode === "list" ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-transparent text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59]"}`}>
+                            <List size={13} />
+                        </button>
+                        <button onClick={() => fetchAssets(clinicId, currentPage)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-black/[0.09] text-[#8A9BB0] hover:border-[#4A7C59] hover:text-[#4A7C59] transition-all cursor-pointer bg-transparent">
+                            <RefreshCw size={13} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Tab content ── */}
+            <div className="flex-1 overflow-y-auto">
+                {activeTab === "transferred" ? (
+                    <TransfersTab clinicId={clinicId} />
+                ) : (
+                    <div className="p-5">
+                        {loading && assets.length === 0 ? (
+                            <div className="flex items-center justify-center h-64">
+                                <div className="flex flex-col items-center gap-3 text-[#8A9BB0]">
+                                    <Loader2 size={24} className="animate-spin" />
+                                    <p className="text-[13px]">Loading media…</p>
+                                </div>
+                            </div>
+                        ) : error ? (
+                            <div className="flex items-center justify-center h-64">
+                                <div className="text-center text-[#c05c3c]">
+                                    <AlertCircle size={32} className="mx-auto opacity-60 mb-2" />
+                                    <p className="text-[13px]">{error}</p>
+                                </div>
+                            </div>
+                        ) : filtered.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-64 text-[#8A9BB0]">
+                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-black/[0.07]">
+                                    <ImageIcon size={24} className="opacity-40" />
+                                </div>
+                                <p className="text-[15px] font-semibold text-[#0D1117] mb-1">No files found</p>
+                                <p className="text-[12px]">{search ? "Try a different search" : "Upload your first file to get started"}</p>
+                            </div>
+                        ) : viewMode === "grid" ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                                {filtered.map(asset => {
+                                    const isImage = asset.mime_type?.startsWith("image/");
+                                    return (
+                                        <div key={asset.id} className="group relative bg-white rounded-2xl border border-black/[0.09] overflow-hidden hover:border-[#4A7C59]/40 hover:shadow-[0_4px_16px_rgba(74,124,89,0.1)] transition-all cursor-pointer"
+                                            onClick={() => setPreviewAsset(asset)}>
+                                            <div className="aspect-square bg-[#F7F4EF] flex items-center justify-center">
+                                                {isImage ? (
+                                                    <img src={asset.file_url} alt={asset.file_original_name} className="w-full h-full object-cover" loading="lazy" />
+                                                ) : (
+                                                    <File size={28} className="text-[#8A9BB0]" />
+                                                )}
+                                            </div>
+                                            <div className="p-2.5">
+                                                <p className="text-[11px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
+                                                <p className="text-[10px] text-[#8A9BB0] mt-0.5">{formatFileSize(asset.file_size)}</p>
+                                            </div>
+                                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                                <AssetRowMenu
+                                                    asset={asset}
+                                                    onDelete={() => handleDelete(asset)}
+                                                    onTransfer={() => setTransferAssetData(asset)}
+                                                    onPreview={() => setPreviewAsset(asset)}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-2xl border border-black/[0.09] overflow-hidden">
+                                <div className="grid px-4 py-2.5 border-b border-black/[0.05] bg-[#F7F4EF]/60"
+                                    style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}>
+                                    {["", "Name", "Type", "Size", "Uploaded", ""].map((h, i) => (
+                                        <span key={i} className="text-[10px] font-bold uppercase tracking-[0.07em] text-[#8A9BB0]">{h}</span>
+                                    ))}
+                                </div>
+                                {filtered.map(asset => {
+                                    const isImage = asset.mime_type?.startsWith("image/");
+                                    return (
+                                        <div key={asset.id}
+                                            className="grid items-center px-4 py-3 border-b border-black/[0.05] hover:bg-[#F7F4EF]/60 transition-colors cursor-pointer"
+                                            style={{ gridTemplateColumns: "40px 1fr 100px 80px 120px 40px" }}
+                                            onClick={() => setPreviewAsset(asset)}
+                                        >
+                                            <div className="w-8 h-8 rounded-lg bg-[#F7F4EF] flex items-center justify-center flex-shrink-0 overflow-hidden border border-black/[0.07]">
+                                                {isImage ? (
+                                                    <img src={asset.file_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                                ) : (
+                                                    <File size={14} className="text-[#8A9BB0]" />
+                                                )}
+                                            </div>
+                                            <div className="min-w-0 pl-2">
+                                                <p className="text-[13px] font-semibold text-[#0D1117] truncate">{asset.file_original_name}</p>
+                                                <p className="text-[11px] text-[#8A9BB0]">by {asset.fname || "—"} {asset.lname || ""}</p>
+                                            </div>
+                                            <p className="text-[11px] text-[#8A9BB0] truncate">{asset.extension || asset.mime_type?.split("/")[1] || "—"}</p>
+                                            <p className="text-[12px] text-[#8A9BB0]">{formatFileSize(asset.file_size)}</p>
+                                            <p className="text-[12px] text-[#8A9BB0]">{fmtDate(asset.created_at)}</p>
+                                            <div onClick={e => e.stopPropagation()}>
+                                                <AssetRowMenu
+                                                    asset={asset}
+                                                    onDelete={() => handleDelete(asset)}
+                                                    onTransfer={() => setTransferAssetData(asset)}
+                                                    onPreview={() => setPreviewAsset(asset)}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {pagination.totalPages > 1 && (
+                            <div className="mt-6 flex items-center justify-center gap-2">
+                                {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(page => (
+                                    <button key={page} onClick={() => handlePageChange(page)}
+                                        className={`w-8 h-8 text-[12px] font-semibold rounded-lg border transition-all cursor-pointer font-['DM_Sans'] ${currentPage === page ? "bg-[#4A7C59] text-white border-[#4A7C59]" : "bg-white text-[#8A9BB0] border-black/[0.09] hover:border-[#4A7C59] hover:text-[#2F5C3A]"}`}>
+                                        {page}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -1649,6 +661,7 @@ export default function MediaLibrary() {
                     asset={previewAsset}
                     assets={filtered}
                     onNavigate={setPreviewAsset}
+                    clinicId={clinicId}
                 />
             )}
 
@@ -1663,6 +676,751 @@ export default function MediaLibrary() {
         </div>
     );
 }
+
+
+assetStore.js:
+import { create } from "zustand";
+import axiosInstance from "../../api/axiosInstance";
+
+export const useAssetStore = create((set, get) => ({
+  assets: [],
+  loading: false,
+  error: null,
+  pagination: {
+    currentPage: 1,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false,
+    perPage: 20,
+    lastPage: 1,
+  },
+
+  // Transfers received by the current user
+  transfers: [],
+  transfersLoading: false,
+  transfersError: null,
+
+  fetchAssets: async (clinicId, page = 1, params = {}) => {
+    set({ loading: true, error: null });
+    try {
+      const query = new URLSearchParams({ page, limit: 20, ...params });
+      const response = await axiosInstance.get(
+        `/assets/${clinicId}/assets?${query}`,
+      );
+      const data = response.data?.data;
+      set({
+        assets: data?.assets || [],
+        pagination: {
+          currentPage: data?.pagination?.page || page,
+          total: data?.pagination?.total || 0,
+          totalPages: data?.pagination?.totalPages || 1,
+          hasNext: data?.pagination?.hasNext || false,
+          hasPrev: data?.pagination?.hasPrev || false,
+          perPage: data?.pagination?.limit || 20,
+          lastPage: data?.pagination?.totalPages || 1,
+        },
+        loading: false,
+      });
+      return data?.assets || [];
+    } catch (error) {
+      set({
+        error:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to fetch assets",
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  uploadAsset: async (clinicId, payload) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await axiosInstance.post(
+        `/assets/${clinicId}/assets/upload`,
+        payload,
+      );
+      const asset = response.data?.data?.asset;
+      set((state) => ({
+        assets: [asset, ...state.assets],
+        loading: false,
+      }));
+      return asset;
+    } catch (error) {
+      set({
+        error:
+          error?.response?.data?.message || error?.message || "Upload failed",
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteAsset: async (clinicId, assetId) => {
+    try {
+      await axiosInstance.delete(`/assets/${clinicId}/assets/${assetId}`);
+      set((state) => ({
+        assets: state.assets.filter((a) => a.id !== assetId),
+      }));
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  transferAsset: async (clinicId, assetId, receiverId, message) => {
+    try {
+      const response = await axiosInstance.post(
+        `/assets/${clinicId}/assets/${assetId}/transfer`,
+        {
+          receiver_id: receiverId,
+          message,
+        },
+      );
+      return response.data?.data?.transfer;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch all transfers sent TO the currently logged-in user.
+   * Results are stored in `transfers` state.
+   */
+  getMyTransfers: async () => {
+    set({ transfersLoading: true, transfersError: null });
+    try {
+      const response = await axiosInstance.get(`/assets/my-transfers`);
+      const transfers = response.data?.data?.transfers || [];
+      set({ transfers, transfersLoading: false });
+      return transfers;
+    } catch (error) {
+      set({
+        transfersError:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to fetch transfers",
+        transfersLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Update the status of a received transfer (e.g. mark as 'received' or 'declined').
+   */
+  updateTransferStatus: async (clinicId, transferId, status) => {
+    try {
+      await axiosInstance.patch(
+        `/assets/${clinicId}/assets/transfers/${transferId}/status`,
+        { status },
+      );
+      // Update local state optimistically
+      set((state) => ({
+        transfers: state.transfers.map((t) =>
+          t.id === transferId ? { ...t, status } : t
+        ),
+      }));
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  downloadAsset: async (clinicId, assetId, filename) => {
+    try {
+      const response = await axiosInstance.get(
+        `/assets/${clinicId}/assets/${assetId}/download`,
+        { responseType: "blob" },
+      );
+      const blob = new Blob([response.data]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "download";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      throw error;
+    }
+  },
+}));
+
+asset.controller.js:
+const asyncHandler = require("express-async-handler");
+const { responseHandler } = require("../middleware/responseHandler.js");
+const Asset = require("../models/asset.model.js");
+const axios = require("axios");
+const { v4: uuidv4 } = require("uuid");
+const { file_config } = require("../config/config.inc.js");
+
+const uploadClinicAsset = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const { file, filename, filetype, file_size, file_original_name } = req.body;
+
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated");
+  }
+
+  if (!file) {
+    res.status(400);
+    throw new Error("No file uploaded");
+  }
+
+  try {
+    const response = await axios.post(
+      "https://projectapi.tixora.com.ng/fileflow/files/api/upload",
+      {
+        image: file,
+        folderName: `medicore/clinic_${clinicId}` || "general",
+        fileName: file_original_name,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${file_config.apiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.data || !response.data.data) {
+      throw new Error("Invalid response from file upload service");
+    }
+
+    const uploadData = response.data.data;
+    const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    const assetId = await Asset.create({
+      clinic_id: clinicId,
+      user_id: userId,
+      file_uuid: uploadData.uuid || uuidv4(),
+      file_original_name: uploadData.file_original_name || file_original_name,
+      file_url: uploadData.file_url,
+      file_name: uploadData.file_name || filename,
+      file_size: uploadData.file_size || file_size,
+      mime_type: uploadData.type || filetype,
+      extension: uploadData.extension,
+      created_at: nowUtc,
+    });
+
+    if (!assetId) {
+      res.status(500);
+      throw new Error("Failed to save asset");
+    }
+
+    const asset = await Asset.findById(assetId);
+
+    res.status(201);
+    responseHandler(res, { asset }, "File uploaded successfully");
+  } catch (error) {
+    res.status(500);
+    throw new Error(`File upload failed: ${error.message}`);
+  }
+});
+
+/**
+ * GET /:clinicId/assets
+ *
+ * Returns only the authenticated user's own assets within the clinic.
+ * Staff cannot browse other staff members' files without explicit permission.
+ */
+const getClinicAssets = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const search = req.query.search?.trim() || null;
+  const mimeType = req.query.mime_type || null;
+
+  if (!userId) {
+    res.status(401);
+    throw new Error("User not authenticated");
+  }
+
+  // Scope assets to the requesting user — they only see their own uploads
+  const { assets, total } = await Asset.findByClinicAndUser({
+    clinicId,
+    userId,
+    page,
+    limit,
+    search,
+    mimeType,
+  });
+
+  const totalPages = Math.ceil(total / limit);
+
+  res.status(200);
+  responseHandler(res, {
+    assets,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    },
+  });
+});
+
+const deleteClinicAsset = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const assetId = parseInt(req.params.assetId, 10);
+
+  // Only allow the owner of the asset to delete it
+  const deleted = await Asset.deleteOwnedByUser(assetId, clinicId, userId);
+
+  if (!deleted) {
+    res.status(404);
+    throw new Error("Asset not found, already deleted, or you do not have permission to delete it");
+  }
+
+  res.status(200);
+  responseHandler(res, { message: "Asset deleted successfully" });
+});
+
+const transferAsset = asyncHandler(async function (req, res) {
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const assetId = parseInt(req.params.assetId, 10);
+  const senderId = req.user?.id;
+  const { receiver_id, message } = req.body;
+
+  if (!receiver_id) {
+    res.status(400);
+    throw new Error("Receiver ID is required");
+  }
+
+  const asset = await Asset.findById(assetId);
+
+  // Only the owner of the asset can transfer it
+  if (!asset || asset.clinic_id !== clinicId) {
+    res.status(404);
+    throw new Error("Asset not found");
+  }
+
+  if (asset.user_id !== senderId) {
+    res.status(403);
+    throw new Error("You do not have permission to transfer this asset");
+  }
+
+  const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+  const transferId = await Asset.createTransfer({
+    asset_id: assetId,
+    sender_id: senderId,
+    receiver_id,
+    message,
+    created_at: nowUtc,
+  });
+
+  if (!transferId) {
+    res.status(500);
+    throw new Error("Failed to create transfer");
+  }
+
+  const transfer = await Asset.findTransferById(transferId);
+
+  res.status(201);
+  responseHandler(res, { transfer }, "File transferred successfully");
+});
+
+const getAssetTransfers = asyncHandler(async function (req, res) {
+  const assetId = parseInt(req.params.assetId, 10);
+  const transfers = await Asset.findTransfersByAsset(assetId);
+  res.status(200);
+  responseHandler(res, { transfers });
+});
+
+const updateTransferStatus = asyncHandler(async function (req, res) {
+  const transferId = parseInt(req.params.transferId, 10);
+  const { status } = req.body;
+
+  if (!["received", "declined"].includes(status)) {
+    res.status(400);
+    throw new Error("Status must be 'received' or 'declined'");
+  }
+
+  const updated = await Asset.updateTransferStatus(transferId, status);
+  if (!updated) {
+    res.status(404);
+    throw new Error("Transfer not found");
+  }
+
+  res.status(200);
+  responseHandler(res, { message: "Transfer status updated" });
+});
+
+/**
+ * GET /my-transfers
+ * Returns all file transfers sent TO the authenticated user.
+ */
+const getMyTransfers = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const transfers = await Asset.findTransfersByReceiver(userId);
+  res.status(200);
+  responseHandler(res, { transfers });
+});
+
+const downloadClinicAsset = asyncHandler(async function (req, res) {
+  const userId = req.user?.id;
+  const clinicId = parseInt(req.params.clinicId, 10);
+  const assetId = parseInt(req.params.assetId, 10);
+
+  const asset = await Asset.findById(assetId);
+
+  if (!asset || asset.clinic_id !== clinicId) {
+    res.status(404);
+    throw new Error("Asset not found");
+  }
+
+  // Allow download if: user owns the asset OR the asset was transferred to this user
+  const isOwner = asset.user_id === userId;
+  if (!isOwner) {
+    // Check if a transfer exists for this user
+    const transfers = await Asset.findTransfersByReceiver(userId);
+    const hasAccess = transfers.some((t) => t.asset_id === assetId);
+    if (!hasAccess) {
+      res.status(403);
+      throw new Error("You do not have permission to download this asset");
+    }
+  }
+
+  const response = await axios.get(asset.file_url, { responseType: "stream" });
+
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${asset.file_original_name}"`,
+  );
+  res.setHeader("Content-Type", asset.mime_type || "application/octet-stream");
+  if (asset.file_size) res.setHeader("Content-Length", asset.file_size);
+
+  response.data.pipe(res);
+});
+
+module.exports = {
+  uploadClinicAsset,
+  getClinicAssets,
+  deleteClinicAsset,
+  transferAsset,
+  getAssetTransfers,
+  updateTransferStatus,
+  getMyTransfers,
+  downloadClinicAsset,
+};
+
+
+asset.model.js:
+const { db_connection } = require("../config/config.inc");
+
+const Asset = {
+  create: async ({ clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at }) => {
+    try {
+      const [result] = await db_connection.execute(
+        `INSERT INTO clinic_assets (clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [clinic_id, user_id, file_uuid, file_original_name, file_url, file_name, file_size, mime_type, extension, created_at]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error("Error in Asset.create:", error);
+      return null;
+    }
+  },
+
+  findById: async (id) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
+         FROM clinic_assets ca
+         LEFT JOIN users u ON u.id = ca.user_id
+         WHERE ca.id = ? AND ca.deleted_at IS NULL
+         LIMIT 1`,
+        [id]
+      );
+      return rows[0] || null;
+    } catch (error) {
+      console.error("Error in Asset.findById:", error);
+      return null;
+    }
+  },
+
+  /**
+   * Fetch assets scoped to a specific user within a clinic.
+   * Used when a staff member should only see their own uploads.
+   */
+  findByClinicAndUser: async ({ clinicId, userId, page = 1, limit = 20, search = null, mimeType = null }) => {
+    try {
+      const offset = (page - 1) * limit;
+      const params = [clinicId, userId];
+      const conditions = ["ca.clinic_id = ?", "ca.user_id = ?", "ca.deleted_at IS NULL"];
+
+      if (search) {
+        conditions.push("ca.file_original_name LIKE ?");
+        params.push(`%${search}%`);
+      }
+      if (mimeType) {
+        conditions.push("ca.mime_type LIKE ?");
+        params.push(`${mimeType}%`);
+      }
+
+      const where = conditions.join(" AND ");
+
+      const [[{ total }]] = await db_connection.execute(
+        `SELECT COUNT(*) AS total FROM clinic_assets ca WHERE ${where}`,
+        [...params]
+      );
+
+      if (total === 0) return { assets: [], total: 0 };
+
+      const [rows] = await db_connection.execute(
+        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
+         FROM clinic_assets ca
+         LEFT JOIN users u ON u.id = ca.user_id
+         WHERE ${where}
+         ORDER BY ca.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
+
+      return { assets: rows, total };
+    } catch (error) {
+      console.error("Error in Asset.findByClinicAndUser:", error);
+      return { assets: [], total: 0 };
+    }
+  },
+
+  /**
+   * Fetch all assets in a clinic (admin/owner view).
+   */
+  findByClinic: async ({ clinicId, page = 1, limit = 20, search = null, mimeType = null }) => {
+    try {
+      const offset = (page - 1) * limit;
+      const params = [clinicId];
+      const conditions = ["ca.clinic_id = ?", "ca.deleted_at IS NULL"];
+
+      if (search) {
+        conditions.push("ca.file_original_name LIKE ?");
+        params.push(`%${search}%`);
+      }
+      if (mimeType) {
+        conditions.push("ca.mime_type LIKE ?");
+        params.push(`${mimeType}%`);
+      }
+
+      const where = conditions.join(" AND ");
+      const countParams = [...params];
+
+      const [[{ total }]] = await db_connection.execute(
+        `SELECT COUNT(*) AS total FROM clinic_assets ca WHERE ${where}`,
+        countParams
+      );
+
+      if (total === 0) return { assets: [], total: 0 };
+
+      const dataParams = [...params, limit, offset];
+      const [rows] = await db_connection.execute(
+        `SELECT ca.*, u.fname, u.lname, u.email AS owner_email
+         FROM clinic_assets ca
+         LEFT JOIN users u ON u.id = ca.user_id
+         WHERE ${where}
+         ORDER BY ca.created_at DESC
+         LIMIT ? OFFSET ?`,
+        dataParams
+      );
+
+      return { assets: rows, total };
+    } catch (error) {
+      console.error("Error in Asset.findByClinic:", error);
+      return { assets: [], total: 0 };
+    }
+  },
+
+  delete: async (id, clinicId) => {
+    try {
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const [result] = await db_connection.execute(
+        `UPDATE clinic_assets SET deleted_at = ? WHERE id = ? AND clinic_id = ?`,
+        [nowUtc, id, clinicId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Error in Asset.delete:", error);
+      return false;
+    }
+  },
+
+  /**
+   * Delete only if the asset belongs to the given user (ownership check).
+   */
+  deleteOwnedByUser: async (id, clinicId, userId) => {
+    try {
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const [result] = await db_connection.execute(
+        `UPDATE clinic_assets SET deleted_at = ? WHERE id = ? AND clinic_id = ? AND user_id = ?`,
+        [nowUtc, id, clinicId, userId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Error in Asset.deleteOwnedByUser:", error);
+      return false;
+    }
+  },
+
+  findTransfersByAsset: async (assetId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*, 
+          s.fname AS sender_fname, s.lname AS sender_lname,
+          r.fname AS receiver_fname, r.lname AS receiver_lname, r.email AS receiver_email
+         FROM asset_transfers ft
+         LEFT JOIN users s ON s.id = ft.sender_id
+         LEFT JOIN users r ON r.id = ft.receiver_id
+         WHERE ft.asset_id = ?
+         ORDER BY ft.created_at DESC`,
+        [assetId]
+      );
+      return rows;
+    } catch (error) {
+      console.error("Error in Asset.findTransfersByAsset:", error);
+      return [];
+    }
+  },
+
+  createTransfer: async ({ asset_id, sender_id, receiver_id, message, created_at }) => {
+    try {
+      const [result] = await db_connection.execute(
+        `INSERT INTO asset_transfers (asset_id, sender_id, receiver_id, message, status, created_at)
+         VALUES (?, ?, ?, ?, 'sent', ?)`,
+        [asset_id, sender_id, receiver_id, message || null, created_at]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error("Error in Asset.createTransfer:", error);
+      return null;
+    }
+  },
+
+  findTransferById: async (transferId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*,
+          ca.file_url, ca.file_original_name, ca.mime_type,
+          s.fname AS sender_fname, s.lname AS sender_lname,
+          r.fname AS receiver_fname, r.lname AS receiver_lname
+         FROM asset_transfers ft
+         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
+         LEFT JOIN users s ON s.id = ft.sender_id
+         LEFT JOIN users r ON r.id = ft.receiver_id
+         WHERE ft.id = ?
+         LIMIT 1`,
+        [transferId]
+      );
+      return rows[0] || null;
+    } catch (error) {
+      console.error("Error in Asset.findTransferById:", error);
+      return null;
+    }
+  },
+
+  updateTransferStatus: async (transferId, status) => {
+    try {
+      const nowUtc = new Date().toISOString().slice(0, 19).replace("T", " ");
+      const [result] = await db_connection.execute(
+        `UPDATE asset_transfers SET status = ?, received_at = ? WHERE id = ?`,
+        [status, nowUtc, transferId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Error in Asset.updateTransferStatus:", error);
+      return false;
+    }
+  },
+
+  findTransfersByReceiver: async (userId) => {
+    try {
+      const [rows] = await db_connection.execute(
+        `SELECT ft.*,
+          ca.file_url, ca.file_original_name, ca.mime_type, ca.file_size,
+          s.fname AS sender_fname, s.lname AS sender_lname
+         FROM asset_transfers ft
+         LEFT JOIN clinic_assets ca ON ca.id = ft.asset_id
+         LEFT JOIN users s ON s.id = ft.sender_id
+         WHERE ft.receiver_id = ?
+         ORDER BY ft.created_at DESC`,
+        [userId]
+      );
+      return rows;
+    } catch (error) {
+      console.error("Error in Asset.findTransfersByReceiver:", error);
+      return [];
+    }
+  },
+};
+
+module.exports = Asset;
+
+asset.route.js:
+const express = require("express");
+const router = express.Router({ mergeParams: true });
+const validateTokenHandler = require("../middleware/validateTokenHandler");
+const {
+  uploadClinicAsset,
+  getClinicAssets,
+  deleteClinicAsset,
+  transferAsset,
+  getAssetTransfers,
+  updateTransferStatus,
+  getMyTransfers,
+  downloadClinicAsset,
+} = require("../controllers/asset.controller");
+const { checkRolePermission } = require("../middleware/rolePermission");
+
+router.get("/:clinicId/assets", validateTokenHandler, getClinicAssets);
+
+router.post(
+  "/:clinicId/assets/upload",
+  validateTokenHandler,
+  uploadClinicAsset,
+);
+
+router.delete(
+  "/:clinicId/assets/:assetId",
+  validateTokenHandler,
+  deleteClinicAsset,
+);
+
+router.post(
+  "/:clinicId/assets/:assetId/transfer",
+  validateTokenHandler,
+  transferAsset,
+);
+
+router.get(
+  "/:clinicId/assets/:assetId/transfers",
+  validateTokenHandler,
+  getAssetTransfers,
+);
+
+router.patch(
+  "/:clinicId/assets/transfers/:transferId/status",
+  validateTokenHandler,
+  updateTransferStatus,
+);
+
+router.get("/my-transfers", validateTokenHandler, getMyTransfers);
+
+router.get(
+  "/:clinicId/assets/:assetId/download",
+  validateTokenHandler,
+  downloadClinicAsset,
+);
+
+module.exports = router;
 
 db:
 -- Users table
@@ -2042,11 +1800,332 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
   INDEX idx_transfer_asset (asset_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS patients (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
 
-problem:
-help me do this thing, the download should be from the backend:
-assets/${asset.id}/download`
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
 
-use the zustand
+  patient_code VARCHAR(50) NULL UNIQUE,
 
-give me full code without comments
+  first_name VARCHAR(120) NOT NULL,
+  last_name VARCHAR(120) NOT NULL,
+  middle_name VARCHAR(120) NULL,
+
+  gender ENUM('male','female') NULL,
+  date_of_birth DATE NULL,
+
+  phone VARCHAR(50) NULL,
+  alt_phone VARCHAR(50) NULL,
+  email VARCHAR(190) NULL,
+   profile_photo_url VARCHAR(512) NULL,
+
+  address TEXT NULL,
+  city VARCHAR(150) NULL,
+  state_id BIGINT UNSIGNED NULL,
+
+  blood_group VARCHAR(10) NULL,
+  genotype VARCHAR(10) NULL,
+  allergies TEXT NULL,
+  chronic_conditions TEXT NULL,
+
+  emergency_contact_name VARCHAR(150) NULL,
+  emergency_contact_phone VARCHAR(50) NULL,
+  emergency_contact_relationship VARCHAR(80) NULL,
+
+  status ENUM('active','inactive','deceased') DEFAULT 'active',
+
+  registered_by BIGINT UNSIGNED NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL,
+  FOREIGN KEY (state_id) REFERENCES states(id) ON DELETE SET NULL,
+  FOREIGN KEY (registered_by) REFERENCES users(id) ON DELETE SET NULL,
+
+  INDEX idx_patient_clinic (clinic_id),
+  INDEX idx_patient_branch (branch_id),
+  INDEX idx_patient_status (status),
+  INDEX idx_patient_phone (phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_departments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  patient_id BIGINT UNSIGNED NOT NULL,
+  department_id BIGINT UNSIGNED NOT NULL,
+
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+
+  UNIQUE KEY uq_patient_department (patient_id, department_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_doctors (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  patient_id BIGINT UNSIGNED NOT NULL,
+  staff_profile_id BIGINT UNSIGNED NOT NULL,
+
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  is_primary TINYINT(1) DEFAULT 0,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (staff_profile_id) REFERENCES staff_profiles(id) ON DELETE CASCADE,
+
+  UNIQUE KEY uq_patient_doctor (patient_id, staff_profile_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_assets (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  asset_id BIGINT UNSIGNED NOT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (asset_id) REFERENCES clinic_assets(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS patient_visits (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+
+  patient_id BIGINT UNSIGNED NOT NULL,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  department_id BIGINT UNSIGNED NULL,
+
+  attending_staff_id BIGINT UNSIGNED NULL,
+
+  visit_type ENUM('consultation','emergency','follow_up','admission','lab','pharmacy') DEFAULT 'consultation',
+
+  visit_status ENUM('waiting','in_progress','completed','cancelled','admitted') DEFAULT 'waiting',
+
+  reason_for_visit VARCHAR(255) NULL,
+  symptoms TEXT NULL,
+  diagnosis TEXT NULL,
+  notes TEXT NULL,
+
+  visit_date DATETIME NOT NULL,
+  completed_at DATETIME NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+  FOREIGN KEY (attending_staff_id) REFERENCES staff_profiles(id) ON DELETE SET NULL,
+
+  INDEX idx_visit_patient (patient_id),
+  INDEX idx_visit_status (visit_status),
+  INDEX idx_visit_date (visit_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS appointments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+
+  patient_id BIGINT UNSIGNED NOT NULL,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  department_id BIGINT UNSIGNED NULL,
+  staff_profile_id BIGINT UNSIGNED NULL,
+
+  appointment_date DATETIME NOT NULL,
+  status ENUM('scheduled','confirmed','completed','cancelled','no_show') DEFAULT 'scheduled',
+
+  reason TEXT NULL,
+  notes TEXT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+  FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+  FOREIGN KEY (staff_profile_id) REFERENCES staff_profiles(id) ON DELETE SET NULL,
+
+  INDEX idx_appointment_date (appointment_date),
+  INDEX idx_appointment_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_vitals (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  visit_id BIGINT UNSIGNED NOT NULL,
+
+  temperature DECIMAL(5,2) NULL,
+  blood_pressure VARCHAR(20) NULL,
+  pulse_rate INT NULL,
+  respiratory_rate INT NULL,
+  oxygen_saturation DECIMAL(5,2) NULL,
+  weight DECIMAL(6,2) NULL,
+  height DECIMAL(6,2) NULL,
+
+  recorded_by BIGINT UNSIGNED NULL,
+  recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (visit_id) REFERENCES patient_visits(id) ON DELETE CASCADE,
+  FOREIGN KEY (recorded_by) REFERENCES staff_profiles(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS prescriptions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  visit_id BIGINT UNSIGNED NOT NULL,
+  prescribed_by BIGINT UNSIGNED NULL,
+
+  medication_name VARCHAR(255) NOT NULL,
+  dosage VARCHAR(100) NULL,
+  frequency VARCHAR(100) NULL,
+  duration VARCHAR(100) NULL,
+  instructions TEXT NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (visit_id) REFERENCES patient_visits(id) ON DELETE CASCADE,
+  FOREIGN KEY (prescribed_by) REFERENCES staff_profiles(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS lab_tests (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  visit_id BIGINT UNSIGNED NOT NULL,
+
+  test_name VARCHAR(255) NOT NULL,
+  result TEXT NULL,
+  status ENUM('requested','in_progress','completed') DEFAULT 'requested',
+
+  requested_by BIGINT UNSIGNED NULL,
+  performed_by BIGINT UNSIGNED NULL,
+
+  requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+
+  FOREIGN KEY (visit_id) REFERENCES patient_visits(id) ON DELETE CASCADE,
+  FOREIGN KEY (requested_by) REFERENCES staff_profiles(id) ON DELETE SET NULL,
+  FOREIGN KEY (performed_by) REFERENCES staff_profiles(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(36) NOT NULL UNIQUE,
+
+  patient_id BIGINT UNSIGNED NOT NULL,
+  visit_id BIGINT UNSIGNED NULL,
+  clinic_id BIGINT UNSIGNED NOT NULL,
+
+  total_amount DECIMAL(12,2) NOT NULL,
+  amount_paid DECIMAL(12,2) DEFAULT 0,
+  status ENUM('unpaid','partial','paid','cancelled') DEFAULT 'unpaid',
+
+  issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  due_date DATETIME NULL,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (visit_id) REFERENCES patient_visits(id) ON DELETE SET NULL,
+  FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_portal_accounts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  patient_id BIGINT UNSIGNED NOT NULL UNIQUE,
+
+  email VARCHAR(190) NULL UNIQUE,
+
+  password_hash VARCHAR(255) NULL,
+
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  email_verified_at DATETIME NULL,
+
+  last_login_at DATETIME NULL,
+  last_login_ip VARCHAR(45) NULL,
+
+  failed_login_attempts INT DEFAULT 0,
+  locked_until DATETIME NULL,
+
+  created_by BIGINT UNSIGNED NULL, -- staff who enabled portal
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+
+  INDEX idx_portal_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS patient_portal_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  portal_account_id BIGINT UNSIGNED NOT NULL,
+
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  type ENUM('activation','password_reset') NOT NULL,
+
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (portal_account_id)
+    REFERENCES patient_portal_accounts(id)
+    ON DELETE CASCADE,
+
+  INDEX idx_portal_token_type (type),
+  INDEX idx_portal_token_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patient_portal_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  portal_account_id BIGINT UNSIGNED NOT NULL,
+  session_id CHAR(36) NOT NULL UNIQUE,
+
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(512) NULL,
+  device_label VARCHAR(120) NULL,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+
+  FOREIGN KEY (portal_account_id)
+    REFERENCES patient_portal_accounts(id)
+    ON DELETE CASCADE,
+
+  INDEX idx_portal_session_account (portal_account_id),
+  INDEX idx_portal_session_revoked (revoked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+
+CREATE TABLE IF NOT EXISTS patient_portal_login_attempts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+  email VARCHAR(190) NULL,
+  phone VARCHAR(50) NULL,
+  ip_address VARCHAR(45) NULL,
+
+  success TINYINT(1) DEFAULT 0,
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  INDEX idx_portal_attempt_email (email),
+  INDEX idx_portal_attempt_phone (phone),
+  INDEX idx_portal_attempt_ip (ip_address),
+  INDEX idx_portal_attempt_time (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+prompt:
+you can see if that the asset have storage and the subscption has storage help me do it like show the storage meter and it should not pass the storage meter

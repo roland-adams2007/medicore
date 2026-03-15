@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import EmptyState from "./EmptyState";
-import { Plus, Mail, Loader2, CheckCircle2 } from "lucide-react";
+import { Plus, Mail, Loader2, CheckCircle2,Settings } from "lucide-react";
 import InviteRowMenu from "./InviteRowMenu";
 
 const INVITE_STATUS_COLORS = {

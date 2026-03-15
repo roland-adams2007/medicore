@@ -68,10 +68,6 @@ export const ROUTE_MAP = {
 
   // ── Media ───────────────────────────────────────────────────────────────────
   media_library: "/dashboard/media-library",
-  patient_images: "/dashboard/patient-images",
-  scan_uploads: "/dashboard/scan-uploads",
-  documents: "/dashboard/documents",
-  consent_forms: "/dashboard/consent-forms",
 
   // ── Patient Portal ──────────────────────────────────────────────────────────
   my_appointments: "/dashboard/my-appointments",
@@ -334,31 +330,7 @@ export const NAV_SECTIONS = [
         label: "Media Library",
         icon: FolderOpen,
         roles: ["owner", "clinic_owner", "clinic_manager", "branch_manager", "doctor"],
-      },
-      {
-        key: "patient_images",
-        label: "Patient Images",
-        icon: FileImage,
-        roles: ["owner", "clinic_owner", "clinic_manager", "branch_manager", "doctor"],
-      },
-      {
-        key: "scan_uploads",
-        label: "Scans & X-Rays",
-        icon: Image,
-        roles: ["owner", "clinic_owner", "clinic_manager", "branch_manager", "doctor"],
-      },
-      {
-        key: "documents",
-        label: "Documents",
-        icon: FileText,
-        roles: ["owner", "clinic_owner", "clinic_manager", "branch_manager", "doctor", "receptionist"],
-      },
-      {
-        key: "consent_forms",
-        label: "Consent Forms",
-        icon: FileLock,
-        roles: ["owner", "clinic_owner", "clinic_manager", "branch_manager", "doctor", "receptionist"],
-      },
+      }
     ],
   },
   {

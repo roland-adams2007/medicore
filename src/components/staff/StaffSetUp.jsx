@@ -59,7 +59,7 @@ function DepartmentSelect({ clinicId, branchId, selectedDepartments, onChange })
     useEffect(() => {
         if (!clinicId || !branchId) return;
         setLoading(true);
-        import("../../../api/axiosInstance").then(({ default: axiosInstance }) => {
+        import("../../api/axiosInstance").then(({ default: axiosInstance }) => {
             axiosInstance.get(`/clinics/${clinicId}/branches/${branchId}/departments`)
                 .then(res => {
                     setDepartments(res.data?.data?.departments || []);

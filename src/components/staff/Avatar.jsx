@@ -7,7 +7,7 @@ export default function Avatar({ fname, lname, photoUrl, size = 10, onClick }) {
     if (photoUrl)
         return (
             <div className={cls} style={style} onClick={onClick}>
-                <img src={photoUrl} alt={`${fname} ${lname}`} className="w-full h-full object-cover" />
+                <img loading="lazy" src={photoUrl} alt={`${fname} ${lname}`} className="w-full h-full object-cover" />
             </div>
         );
 

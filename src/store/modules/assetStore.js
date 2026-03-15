@@ -15,6 +15,16 @@ export const useAssetStore = create((set, get) => ({
     lastPage: 1,
   },
 
+  transfers: [],
+  transfersLoading: false,
+  transfersError: null,
+
+  storageStats: {
+    usedBytes: 0,
+    maxBytes: null,
+    percent: 0,
+  },
+
   fetchAssets: async (clinicId, page = 1, params = {}) => {
     set({ loading: true, error: null });
     try {
@@ -99,13 +109,52 @@ export const useAssetStore = create((set, get) => ({
   },
 
   getMyTransfers: async () => {
+    set({ transfersLoading: true, transfersError: null });
     try {
       const response = await axiosInstance.get(`/assets/my-transfers`);
-      return response.data?.data?.transfers || [];
+      const transfers = response.data?.data?.transfers || [];
+      set({ transfers, transfersLoading: false });
+      return transfers;
+    } catch (error) {
+      set({
+        transfersError:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to fetch transfers",
+        transfersLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  updateTransferStatus: async (clinicId, transferId, status) => {
+    try {
+      await axiosInstance.patch(
+        `/assets/${clinicId}/assets/transfers/${transferId}/status`,
+        { status },
+      );
+      set((state) => ({
+        transfers: state.transfers.map((t) =>
+          t.id === transferId ? { ...t, status } : t
+        ),
+      }));
     } catch (error) {
       throw error;
     }
   },
+
+  fetchStorageStats: async (clinicId) => {
+    try {
+      const response = await axiosInstance.get(`/assets/${clinicId}/storage`);
+      const data = response.data?.data;
+      const usedBytes = data?.used_bytes ?? 0;
+      const maxBytes = data?.max_bytes ?? null;
+      const percent = maxBytes ? Math.min(100, (usedBytes / maxBytes) * 100) : 0;
+      set({ storageStats: { usedBytes, maxBytes, percent } });
+    } catch {
+    }
+  },
+
   downloadAsset: async (clinicId, assetId, filename) => {
     try {
       const response = await axiosInstance.get(

@@ -24,8 +24,8 @@ const StaffView = lazy(() => import("../components/staff/StaffView"));
 
 // Main
 // const Appointments   = lazy(() => import("../pages/Appointments"));
-// const Patients       = lazy(() => import("../pages/Patients"));
-// const RegisterPatient= lazy(() => import("../pages/RegisterPatient"));
+const Patients = lazy(() => import("../pages/Patients"));
+const RegisterPatient = lazy(() => import("../components/patient/RegisterPatient"));
 // const Queue          = lazy(() => import("../pages/Queue"));
 // const Consultations  = lazy(() => import("../pages/Consultations"));
 // const MedicalRecords = lazy(() => import("../pages/MedicalRecords"));
@@ -162,20 +162,20 @@ export default function AppRoutes() {
             </Route>
 
             {/* ── Main ─────────────────────────────────────────────────────── */}
-            {/* <Route element={<RoleProtectedRoute allowedRoles={ALL_STAFF} />}>
-              <Route path="/dashboard/appointments"  element={<Appointments />} />
-              <Route path="/dashboard/patients"      element={<Patients />} />
-              <Route path="/dashboard/medical-records" element={<MedicalRecords />} />
+            <Route element={<RoleProtectedRoute allowedRoles={ALL_STAFF} />}>
+              {/* <Route path="/dashboard/appointments"  element={<Appointments />} /> */}
+              <Route path="/dashboard/patients" element={<Patients />} />
+              {/* <Route path="/dashboard/medical-records" element={<MedicalRecords />} />
               <Route path="/dashboard/admissions"    element={<Admissions />} />
-              <Route path="/dashboard/tasks"         element={<Tasks />} />
-            </Route> */}
-
-            {/* <Route element={<RoleProtectedRoute allowedRoles={[...BRANCH_UP, "receptionist"]} />}>
-              <Route path="/dashboard/register-patient" element={<RegisterPatient />} />
-              <Route path="/dashboard/queue"            element={<Queue />} />
+              <Route path="/dashboard/tasks"         element={<Tasks />} /> */}
             </Route>
 
-            <Route element={<RoleProtectedRoute allowedRoles={DOCTOR_UP} />}>
+            <Route element={<RoleProtectedRoute allowedRoles={[...BRANCH_UP, "receptionist"]} />}>
+              <Route path="/dashboard/register-patient" element={<RegisterPatient />} />
+              {/* <Route path="/dashboard/queue" element={<Queue />} /> */}
+            </Route>
+
+            {/*  <Route element={<RoleProtectedRoute allowedRoles={DOCTOR_UP} />}>
               <Route path="/dashboard/consultations"  element={<Consultations />} />
               <Route path="/dashboard/triage"         element={<Triage />} />
               <Route path="/dashboard/vitals"         element={<Vitals />} />
